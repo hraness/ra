@@ -1,0 +1,2 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Served as text</title></head><body><main><h1>Served as text</h1><p>A route that returns markup without a content type.</p></main></body></html>

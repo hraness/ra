@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -43,6 +43,11 @@ function kinds(looks: Observation[], state: string, view: string): string[] {
   const look = looks.find((candidate) => candidate.state === state && candidate.view === view);
   assert.ok(look !== undefined, `no look at ${state} through ${view}`);
   return look.findings.map((finding) => finding.kind).sort();
+}
+
+/** A small page with nothing wrong on it. */
+function html(title: string, body: string): string {
+  return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head><body><main><h1>${title}</h1>${body}</main></body></html>`;
 }
 
 /** A copy of the fixture site whose config imports ra by absolute path, so it can be changed freely. */
@@ -98,6 +103,28 @@ describe("ra check on the fixture site", () => {
     assert.deepEqual(kinds(looks, "untitled", "phone"), ["document", "document"]);
   });
 
+  test("measures contrast under a strict Content-Security-Policy, and logs nothing of its own", () => {
+    const strict = looks.find((look) => look.state === "strict")!;
+    const said = strict.findings.map((finding) => finding.message);
+    assert.deepEqual(kinds(looks, "strict", "desktop"), ["contrast", "contrast"], said.join("\n"));
+    assert.ok(said.some((message) => message.startsWith('"This grey line is too pale')), said.join("\n"));
+    assert.ok(said.some((message) => message.startsWith('"So is this one, inside a shadow root."')), said.join("\n"));
+  });
+
+  test("does not ask a page served as plain text for a title or viewport", () => {
+    assert.deepEqual(kinds(looks, "plain", "phone"), []);
+    const plain = looks.find((look) => look.state === "plain")!;
+    assert.ok(plain.notes.includes("The page is text/plain, not HTML, so ra did not look for a title or a viewport."), plain.notes.join("\n"));
+  });
+
+  test("says when a web page is served as plain text", () => {
+    const mislabeled = looks.find((look) => look.state === "mislabeled")!;
+    assert.deepEqual(
+      mislabeled.findings.map((finding) => finding.message),
+      ["The page is HTML served as text/plain, so the browser shows its markup as text. Serve it as text/html."],
+    );
+  });
+
   test("treats an error the world was told to give as the state, and a throwing reply as a finding", () => {
     assert.deepEqual(kinds(looks, "outage", "desktop"), []);
     assert.deepEqual(kinds(looks, "faulty", "desktop"), ["request"]);
@@ -112,7 +139,10 @@ describe("ra check on the fixture site", () => {
     assert.ok(!leave.title.includes("Example Domain"), "example.com was reached");
     const outside = leave.findings.find((finding) => finding.kind === "outside")!;
     assert.match(outside.message, /^A redirect from \/leave tried to take the page to https:\/\/example\.com\/, which is not in its world, and was stopped\./u);
-    assert.match(leave.findings.find((finding) => finding.kind === "load")!.message, /sent outside its world/u);
+    assert.match(
+      leave.findings.find((finding) => finding.kind === "load")!.message,
+      /^The page did not load, because a redirect from \/leave sent it outside its world, to https:\/\/example\.com\/ \(net::ERR_PROXY_CONNECTION_FAILED at \S+\)\. The outside finding says more\.$/u,
+    );
   });
 
   test("stops redirect hops that routing never sees, blocks them quietly, and says when a reply could not answer one", () => {
@@ -166,23 +196,33 @@ describe("ra look", () => {
   test("says how to name a state that does not exist, and exits 2", async () => {
     const ran = await ra(["look", "nowhere"]);
     assert.equal(ran.status, 2);
-    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, broken, untitled, outage, faulty, leave, detours/u);
+    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, broken, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
   });
 });
 
 describe("the closed world", () => {
-  test("stops a redirect to another port on this machine, and owns up to one that slips through an allowed host", async () => {
+  test("stops redirects that leave the world, and owns up to the ones that go through by host", async () => {
     const seen: string[] = [];
     const other = createServer((request, response) => {
-      seen.push(request.url ?? "/");
-      response
-        .writeHead(200, { "content-type": "text/html; charset=utf-8" })
-        .end('<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Other</title></head><body><main><h1>Reached</h1></main></body></html>');
+      const path = request.url ?? "/";
+      seen.push(path);
+      if (path.endsWith(".js")) response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end("");
+      else response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(html("Other", "<p>Reached.</p>"));
     });
     await new Promise<void>((done) => other.listen(0, "127.0.0.1", done));
     const port = (other.address() as AddressInfo).port;
+    // A port that nothing listens on.
+    const closed = createServer();
+    await new Promise<void>((done) => closed.listen(0, "127.0.0.1", done));
+    const dead = (closed.address() as AddressInfo).port;
+    await new Promise<void>((done) => closed.close(() => done()));
     try {
       const copy = copySite();
+      mkdirSync(join(copy, "track"));
+      cpSync(join(copy, "ok.png"), join(copy, "track", "p.png"));
+      writeFileSync(join(copy, "pixel.html"), html("Pixel", '<img src="/pixel" alt="">'));
+      writeFileSync(join(copy, "mixed.html"), html("Mixed", `<script src="/hop"></script><script src="http://localhost:${port}/direct.js"></script>`));
+      writeFileSync(join(copy, "refused.html"), html("Refused", '<script src="/dead"></script>'));
       writeFileSync(
         join(copy, "ra.config.ts"),
         `import { defineConfig } from ${JSON.stringify(index)};
@@ -195,6 +235,20 @@ export default defineConfig({
       url: "/slip",
       world: { replies: { "GET /slip": { status: 302, headers: { location: "http://localhost:${port}/secret" } } }, allow: ["localhost:${port}/ok/**"] },
     },
+    // The page itself is sent to a host that its world blocks.
+    gone: {
+      url: "/gone",
+      world: { replies: { "GET /gone": { status: 302, headers: { location: "http://127.0.0.1:${port}/away" } } }, block: ["127.0.0.1:${port}"] },
+    },
+    // An image is sent to a path on the app that its world blocks.
+    pixel: { url: "/pixel.html", world: { replies: { "GET /pixel": { status: 302, headers: { location: "/track/p.png" } } }, block: ["/track/**"] } },
+    // A script is sent to a host that only slip's world allows; the states share one browser.
+    mixed: { url: "/mixed.html", world: { replies: { "GET /hop": { status: 302, headers: { location: "http://localhost:${port}/hopped.js" } } } } },
+    // A script is sent past the proxy to a port where nothing listens, so it fails, but it was not stopped.
+    refused: {
+      url: "/refused.html",
+      world: { replies: { "GET /dead": { status: 302, headers: { location: "http://localhost:${dead}/dead.js" } } }, allow: ["localhost:${dead}/ok/**"] },
+    },
   },
 });
 `,
@@ -202,20 +256,166 @@ export default defineConfig({
       const ran = await ra(["check", "--json"], copy);
       assert.equal(ran.status, 1, ran.err);
       const found = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+      const said = (state: string, kind: string) =>
+        found
+          .find((look) => look.state === state)!
+          .findings.filter((finding) => finding.kind === kind)
+          .map((finding) => finding.message);
+
       assert.deepEqual(kinds(found, "escape", "desktop"), ["load", "outside"]);
-      const escape = found.find((look) => look.state === "escape")!;
-      assert.match(escape.findings.find((finding) => finding.kind === "outside")!.message, /^A redirect from \/escape tried to take the page to http:\/\/127\.0\.0\.1:\d+\/escaped, which is not in its world, and was stopped/u);
+      assert.match(said("escape", "outside")[0]!, /^A redirect from \/escape tried to take the page to http:\/\/127\.0\.0\.1:\d+\/escaped, which is not in its world, and was stopped/u);
+      assert.match(
+        said("escape", "load")[0]!,
+        /^The page did not load, because a redirect from \/escape sent it outside its world, to http:\/\/127\.0\.0\.1:\d+\/escaped \(net::ERR_\w+ at \S+\)\. The outside finding says more\.$/u,
+      );
+
       assert.deepEqual(kinds(found, "slip", "desktop"), ["outside"]);
-      const slip = found.find((look) => look.state === "slip")!;
-      assert.match(slip.findings[0]!.message, /^A redirect from \/slip took the page to http:\/\/localhost:\d+\/secret, which its world does not allow, and the request went through, because localhost:\d+ is allowed/u);
+      assert.match(
+        said("slip", "outside")[0]!,
+        /^A redirect from \/slip took the page to http:\/\/localhost:\d+\/secret, which its world does not allow, and the request went through, because localhost:\d+ is allowed, and ra can stop a redirect only by its host\. Give \/slip a reply that does not redirect there, or allow that address too\.$/u,
+      );
+
+      assert.deepEqual(kinds(found, "gone", "desktop"), ["load"]);
+      assert.match(said("gone", "load")[0]!, /^The page did not load, because a redirect from \/gone took it to http:\/\/127\.0\.0\.1:\d+\/away, which its world blocks \(net::ERR_\w+ at \S+\)\.$/u);
+      assert.equal(found.find((look) => look.state === "gone")!.requests.blocked, 1);
+
+      assert.deepEqual(kinds(found, "pixel", "desktop"), ["outside"]);
+      assert.equal(
+        said("pixel", "outside")[0],
+        "A redirect from /pixel took the page's request for an image to /track/p.png, which its world blocks, and the request went through, because it is on the app's own address, and ra can stop a redirect only by its host. Give /pixel a reply that does not redirect there, or block /pixel too.",
+      );
+
+      assert.deepEqual(kinds(found, "mixed", "desktop"), ["outside", "outside"]);
+      const [through, asked] = said("mixed", "outside");
+      assert.match(
+        through!,
+        /^A redirect from \/hop took the page's request for a script to http:\/\/localhost:\d+\/hopped\.js, which its world does not allow, and the request went through, because localhost:\d+ is allowed in another state's world, and the states share one browser, and ra can stop a redirect only by its host\./u,
+        "what went through comes first, apart from what was stopped on the same host",
+      );
+      assert.match(asked!, /^The page asked localhost:\d+ for a script \(GET http:\/\/localhost:\d+\/direct\.js\); nothing in its world answers\./u);
+
+      assert.deepEqual(kinds(found, "refused", "desktop"), ["outside"]);
+      assert.equal(
+        said("refused", "outside")[0],
+        `A redirect from /dead took the page's request for a script to http://localhost:${dead}/dead.js, which its world does not allow, and the request went through, because localhost:${dead} is allowed, and ra can stop a redirect only by its host. Give /dead a reply that does not redirect there, or allow that address too.`,
+      );
+
       assert.deepEqual(
-        seen.filter((path) => path !== "/favicon.ico"),
-        ["/secret"],
-        "only the hop the finding owns up to reached the other server",
+        seen.filter((path) => path !== "/favicon.ico").sort(),
+        ["/hopped.js", "/secret"],
+        "only the hops the findings own up to reached the other server",
       );
     } finally {
       other.closeAllConnections();
       other.close();
+    }
+  });
+
+  for (const [bind, name] of [
+    ["127.0.0.1", "0.0.0.0"],
+    ["::1", "[::1]"],
+  ] as const) {
+    test(`lets the browser reach an app on this machine at ${name}`, async (t) => {
+      const app = createServer((_request, response) => response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(html("Loopback", "<p>Here.</p>")));
+      try {
+        await new Promise<void>((done, fail) => app.once("error", fail).listen(0, bind, done));
+      } catch (error) {
+        t.skip(`this machine cannot listen on ${bind}: ${(error as Error).message}`);
+        return;
+      }
+      try {
+        const port = (app.address() as AddressInfo).port;
+        const ran = await ra(["look", `http://${name}:${port}/`, "--at", "desktop", "--json"], scratch);
+        assert.equal(ran.status, 0, ran.err);
+        const [look] = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+        assert.deepEqual(look!.findings, []);
+        assert.equal(look!.title, "Loopback");
+      } finally {
+        app.closeAllConnections();
+        app.close();
+      }
+    });
+  }
+
+  test("against a deployment, says to block the deployment's own paths, since no reply stands in for them", async () => {
+    const seen: string[] = [];
+    const redirects: Record<string, string> = {
+      "/widget.js": "https://cdn.example.test/widget.js",
+      "/out.js": "https://elsewhere.example.test/out.js",
+      "/go.js": "/ph/e.js",
+    };
+    const deployment = createServer((request, response) => {
+      const path = request.url ?? "/";
+      seen.push(path);
+      const to = redirects[path];
+      // A deployment that sends its pages to one address, here with www, and
+      // a page that loads with one script from there.
+      if (path === "/moved") response.writeHead(301, { location: `http://www.${request.headers.host}/` }).end();
+      else if (path === "/www.js") response.writeHead(301, { location: `http://www.${request.headers.host}${path}` }).end();
+      else if (path === "/loads") response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(html("Loads", '<script src="/www.js"></script>'));
+      else if (to !== undefined) response.writeHead(302, { location: to }).end();
+      else if (path.endsWith(".js")) response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end("");
+      else response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(html("Deployed", Object.keys(redirects).map((script) => `<script src="${script}"></script>`).join("")));
+    });
+    await new Promise<void>((done) => deployment.listen(0, "127.0.0.1", done));
+    try {
+      const port = (deployment.address() as AddressInfo).port;
+      const project = mkdtempSync(join(scratch, "deployed-"));
+      writeFileSync(
+        join(project, "ra.config.ts"),
+        `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({
+  views: ["desktop"],
+  states: { home: "/" },
+  world: { replies: { "https://cdn.example.test/**": { body: "" } }, block: ["/ph/**"] },
+});
+`,
+      );
+      // A name under .localhost reaches this machine, but ra does not count it as
+      // one of the machine's own names, so it treats the app as a deployment.
+      const ran = await ra(["look", `http://app.localhost:${port}/`, "--json"], project);
+      assert.equal(ran.status, 0, ran.err);
+      const [look] = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+      assert.deepEqual(look!.findings.map((finding) => finding.kind).sort(), ["outside", "outside", "request"]);
+      const said = (kind: string) => look!.findings.filter((finding) => finding.kind === kind).map((finding) => finding.message);
+      assert.equal(
+        said("request")[0],
+        "GET https://cdn.example.test/widget.js has a reply, but the page reached it through a redirect from /widget.js, which the browser follows by itself, so the request failed. No reply stands in for /widget.js on a deployment, so block /widget.js, or look at the app on this machine, where /widget.js can have the reply.",
+      );
+      assert.deepEqual(said("outside"), [
+        "A redirect from /go.js took the page's request for a script to /ph/e.js, which its world blocks, and the request went through, because it is on the app's own address, and ra can stop a redirect only by its host. Block /go.js too.",
+        "A redirect from /out.js tried to take the page's request for a script to https://elsewhere.example.test/out.js, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for elsewhere.example.test cannot answer it. List elsewhere.example.test under block to stop it quietly, or under allow to let it through; no reply stands in for /out.js on a deployment.",
+      ]);
+      assert.ok(seen.includes("/ph/e.js"), "the blocked path went through, as the finding says");
+
+      // Pointed at an address the site redirects away from, ra says which address to look at.
+      const moved = await ra(["look", `http://app.localhost:${port}/moved`, "--json"], project);
+      assert.equal(moved.status, 0, moved.err);
+      const [away] = (JSON.parse(moved.out) as { looks: Observation[] }).looks;
+      const there = `http://www.app.localhost:${port}`;
+      assert.deepEqual(away!.findings.map((finding) => finding.kind), ["load", "outside"]);
+      assert.match(
+        away!.findings[0]!.message,
+        new RegExp(`^The page did not load, because a redirect from /moved took it to ${there.replaceAll(".", "\\.")}/, the same site at another address, which ra does not count as the app \\(net::ERR_\\w+ at \\S+\\)\\. Look at ${there.replaceAll(".", "\\.")} instead\\.$`, "u"),
+      );
+      assert.equal(
+        away!.findings[1]!.message,
+        `A redirect from /moved tried to take the page to ${there}/. That is the same site at another address, which ra does not count as the app, so it was stopped. Look at ${there} instead.`,
+      );
+
+      // When the page loads, the other address is not the one to look at: one script from there gets the usual advice.
+      const loads = await ra(["look", `http://app.localhost:${port}/loads`, "--json"], project);
+      assert.equal(loads.status, 0, loads.err);
+      const [stays] = (JSON.parse(loads.out) as { looks: Observation[] }).looks;
+      assert.deepEqual(
+        stays!.findings.map((finding) => finding.message),
+        [
+          `A redirect from /www.js tried to take the page's request for a script to ${there}/www.js. That is the same site at another address, which ra does not count as the app, so it was stopped. List www.app.localhost:${port} under block to stop it quietly, or under allow to let it through; no reply stands in for /www.js on a deployment.`,
+        ],
+      );
+    } finally {
+      deployment.closeAllConnections();
+      deployment.close();
     }
   });
 });

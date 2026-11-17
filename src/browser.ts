@@ -61,6 +61,13 @@ export interface OpenBrowserOptions {
   args?: readonly string[];
   /** Milliseconds to wait for the browser to start. */
   timeout?: number;
+  /**
+   * Leave SIGINT, SIGTERM and SIGHUP to Playwright, as by default: it closes
+   * its browsers on each of them, and on SIGINT it also ends the process.
+   * Turn it off only when the caller handles those signals and closes the
+   * browser itself, as the CLI does.
+   */
+  handleSignals?: boolean;
 }
 
 export interface Playwright {
@@ -270,9 +277,11 @@ export async function defaultArguments(playwright: Playwright, options: { fresh?
 }
 
 /**
- * Playwright would otherwise close its browsers and exit on Ctrl-C by itself,
- * before ra has stopped the app. ra handles these signals and closes
- * everything in order.
+ * Playwright otherwise closes its browsers on SIGINT, SIGTERM and SIGHUP, and
+ * exits on SIGINT. The CLI turns that off, because it stops the app and
+ * closes everything in order.
+ * The launch that only reads Playwright's arguments starts no real browser,
+ * so it never hands Playwright the signals.
  */
 const OWN_SIGNALS = { handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false } as const;
 
@@ -298,7 +307,7 @@ export async function openBrowser(options: OpenBrowserOptions = {}): Promise<Own
     const browser = await playwright.chromium.launch({
       executablePath: executable,
       headless: true,
-      ...OWN_SIGNALS,
+      ...(options.handleSignals === false ? OWN_SIGNALS : {}),
       ignoreDefaultArgs: plan.ignore,
       args: plan.args,
       ...(options.timeout === undefined ? {} : { timeout: options.timeout }),

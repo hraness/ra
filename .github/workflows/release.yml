@@ -169,24 +169,78 @@ jobs:
             fi
           }
 
-          # A rerun after a published release only confirms it. A draft left
-          # by an earlier failed run is removed; the tag stays.
-          existing="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          # Prints true for a draft, false for a published release, and an
+          # empty line when there is none. Any other failure fails the step,
+          # so an outage is never mistaken for a missing release.
+          release_state() {
+            local out
+            if out="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>"$RUNNER_TEMP/view-error")"; then
+              echo "$out"
+            elif grep -qx 'release not found' "$RUNNER_TEMP/view-error"; then
+              echo
+            else
+              echo "::error::Could not read release $GITHUB_REF_NAME: $(cat "$RUNNER_TEMP/view-error")" >&2
+              return 1
+            fi
+          }
+
+          # Removes this tag's drafts by id. gh looks a tag up as a published
+          # release and as a draft at once and takes whichever answers first,
+          # so going by the tag could delete a published release of the same
+          # tag. The tag was checked to be a plain version, so it is safe in jq.
+          # A draft that is already gone when it is deleted counts as removed.
+          remove_drafts() {
+            local ids id
+            ids="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+              --jq ".[] | select(.draft and .tag_name == \"$GITHUB_REF_NAME\") | .id")" || return 1
+            for id in $ids; do
+              if ! gh api --method DELETE "repos/$GH_REPO/releases/$id" >/dev/null 2>"$RUNNER_TEMP/delete-error"; then
+                if ! grep -q '(HTTP 404)' "$RUNNER_TEMP/delete-error"; then
+                  cat "$RUNNER_TEMP/delete-error" >&2
+                  return 1
+                fi
+              fi
+            done
+          }
+
+          # Drafts left by earlier failed runs go first, so that looking the
+          # tag up finds only a published release or nothing; the tag stays.
+          # A rerun after a published release only confirms it.
+          for _ in 1 2 3; do
+            if ! remove_drafts; then
+              echo "::error::Could not remove the old drafts of $GITHUB_REF_NAME"
+              exit 1
+            fi
+            existing="$(release_state)"
+            [[ "$existing" == "true" ]] || break
+          done
           if [[ "$existing" == "false" ]]; then
             check_published
             echo "$GITHUB_REF_NAME was already published with $TARBALL (sha256:$SHA256)"
             exit 0
-          elif [[ "$existing" == "true" ]]; then
-            gh release delete "$GITHUB_REF_NAME" --yes
+          fi
+          if [[ -n "$existing" ]]; then
+            echo "::error::A draft of $GITHUB_REF_NAME is still there after removing old drafts"
+            exit 1
           fi
 
           # Upload to a draft and prove the uploaded bytes before publishing,
-          # since a published immutable release cannot be corrected.
-          published=false
+          # since a published immutable release cannot be corrected. Once
+          # publishing has been tried, the release is never deleted: GitHub
+          # may have published it even when gh reports a failure, and an
+          # immutable release's tag cannot be used again. A draft that is
+          # still there is removed by the next run.
+          attempted=false
           remove_draft() {
-            if [[ "$published" != "true" ]] && [[ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)" == "true" ]]; then
-              gh release delete "$GITHUB_REF_NAME" --yes || true
-              echo "::error::Removed the unpublished draft of $GITHUB_REF_NAME"
+            if [[ "$attempted" == "true" ]]; then
+              return 0
+            fi
+            if [[ "$(release_state 2>/dev/null || true)" == "true" ]]; then
+              if remove_drafts; then
+                echo "::error::Removed the unpublished draft of $GITHUB_REF_NAME"
+              else
+                echo "::error::Could not remove the unpublished draft of $GITHUB_REF_NAME; the next run removes it"
+              fi
             fi
           }
           trap remove_draft EXIT
@@ -202,7 +256,10 @@ jobs:
             echo "::error::The draft's asset is not the tarball that was verified"
             exit 1
           fi
-          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
-          published=true
+          attempted=true
+          if ! gh release edit "$GITHUB_REF_NAME" --draft=false --latest; then
+            echo "::error::Publishing $GITHUB_REF_NAME failed or went unconfirmed. Rerun this job: it confirms a published release, or replaces a draft."
+            exit 1
+          fi
           check_published
           echo "Published $GITHUB_REF_NAME with $TARBALL (sha256:$SHA256)"

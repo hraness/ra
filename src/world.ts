@@ -8,7 +8,7 @@ import type { AddressInfo } from "node:net";
 import type { Browser, BrowserContext, Request, Route } from "playwright-core";
 import type { Call, Replier, Replies, Reply, RequestInfo, World } from "./config.ts";
 
-const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]", "0.0.0.0"]);
 
 /** Whether an address belongs to the app: the same origin, counting every loopback name as one host. */
 export function sameApp(url: URL, origin: string): boolean {
@@ -206,9 +206,73 @@ export function reachableHosts(worlds: readonly World[]): string[] | null {
   return [...hosts];
 }
 
+/**
+ * Whether a world lets the browser reach this host at all, on any path. The
+ * browser's switches tell hosts apart but not paths.
+ */
+export function allowsHost(world: World, url: URL): boolean {
+  const hosts = reachableHosts([world]);
+  return hosts === null || hostsInclude(hosts, url);
+}
+
+/** Whether one of these host patterns, as `reachableHosts` gives them, names this address's host. */
+export function hostsInclude(hosts: readonly string[], url: URL): boolean {
+  // A rule may name the port even when it is the default, which the address leaves out.
+  const names = [url.hostname, `${url.hostname}:${portOf(url)}`];
+  return hosts.some((host) => names.some((name) => glob(host).test(name)));
+}
+
+/** The port an address uses, with the scheme's default filled in. */
+function portOf(url: URL): string {
+  return url.port || (url.protocol === "https:" || url.protocol === "wss:" ? "443" : "80");
+}
+
+/**
+ * The app's own addresses as the browser's switches name them: its host on
+ * its port, or every loopback name on its port for an app on this machine.
+ */
+function ownAddresses(origin: string): string[] {
+  const app = new URL(origin);
+  const port = portOf(app);
+  return LOOPBACK.has(app.hostname) ? [...LOOPBACK].map((name) => `${name}:${port}`) : [`${app.hostname}:${port}`];
+}
+
+/** Whether the browser lets a request through as one to the app itself. It goes by host and port, whatever the scheme. */
+export function isOwnAddress(url: URL, origin: string): boolean {
+  return ownAddresses(origin).includes(`${url.hostname}:${portOf(url)}`);
+}
+
+/**
+ * Whether the closed world stopped a request that failed with this error.
+ * The browser lets through only the app's own address and the reachable
+ * hosts, and sends everything else to a proxy that refuses it at once. A
+ * request it let through that failed some other way, such as at a port where
+ * nothing listens, was not stopped; nor was anything when every host is
+ * reachable.
+ */
+export function stoppedByClosedWorld(url: URL, error: string, origin: string, reachable: readonly string[] | null): boolean {
+  if (reachable === null) return false;
+  if (/ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(error)) return true;
+  return !isOwnAddress(url, origin) && !hostsInclude(reachable, url);
+}
+
+/**
+ * Whether an address is the app's own site at an address ra does not count
+ * as the app: on https when the app was given on http, or with or without
+ * `www.`. A deployment often redirects every page to its one address so.
+ */
+export function isAppElsewhere(url: URL, origin: string): boolean {
+  const app = new URL(origin);
+  const bare = (host: string) => host.replace(/^www\./u, "");
+  if (bare(url.hostname) !== bare(app.hostname) || isOwnAddress(url, origin)) return false;
+  if (url.protocol === app.protocol) return url.port === app.port;
+  return app.protocol === "http:" && url.protocol === "https:" && app.port === "" && url.port === "";
+}
+
 /** Makes every host name fail to resolve except loopback and the hosts given. */
 export function resolverSwitch(hosts: readonly string[]): string {
-  const names = hosts.map((host) => host.replace(/:\d+$/u, "")).filter((host) => host !== "");
+  // Chromium compares these with the bare host: no port, and no brackets around an IPv6 address.
+  const names = hosts.map((host) => host.replace(/:\d+$/u, "").replace(/^\[(.*)\]$/u, "$1")).filter((host) => host !== "");
   const open = [...new Set(["localhost", "*.localhost", "127.0.0.1", ...names])];
   return `--host-resolver-rules=MAP * ~NOTFOUND , ${open.map((host) => `EXCLUDE ${host}`).join(" , ")}`;
 }
@@ -226,12 +290,10 @@ const NOWHERE = "http://127.0.0.1:1";
  * connections, which the proxy refuses.
  */
 export function closedWorldSwitches(origin: string, hosts: readonly string[]): string[] {
-  const app = new URL(origin);
-  const port = app.port || (app.protocol === "https:" ? "443" : "80");
-  const loopback = LOOPBACK.has(app.hostname);
-  const own = loopback ? ["127.0.0.1", "localhost", "[::1]", "0.0.0.0"].map((name) => `${name}:${port}`) : [app.host];
+  // Only the app's own port: a bypass entry without one would let every port and scheme of that host through.
+  const own = ownAddresses(origin);
   return [
-    resolverSwitch(loopback ? hosts : [app.hostname, ...hosts]),
+    resolverSwitch([...own, ...hosts]),
     `--proxy-server=${NOWHERE}`,
     `--proxy-bypass-list=${["<-loopback>", ...own, ...hosts].join(";")}`,
     "--webrtc-ip-handling-policy=disable_non_proxied_udp",

@@ -61,7 +61,7 @@ export interface Call {
   outcome: "replied" | "allowed" | "blocked" | "unexpected";
   /** For a later hop of a redirect, which the browser follows by itself: the address that started it. */
   via?: string;
-  /** True when a request outside the world went through anyway: a redirect hop to an allowed host, at an address its rule leaves out. */
+  /** True for a redirect hop outside the world that the browser let through anyway, by its host, whether or not anything answered. */
   reached?: boolean;
 }
 

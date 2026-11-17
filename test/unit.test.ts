@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { after, describe, test } from "node:test";
 import { serveStatic, startApp } from "../src/app.ts";
 import { checkCommandLine, planLaunch, rejectInstalledChrome, resolveExecutable } from "../src/browser.ts";
-import { ConfigError, mergeWorlds, readConfig, resolveView } from "../src/config.ts";
+import { ConfigError, loadProject, mergeWorlds, readConfig, resolveView } from "../src/config.ts";
 import { contrastRatio, findLowContrast, neededRatio } from "../src/contrast.ts";
 import { boxChanges, lineChanges } from "../src/diff.ts";
 import type { Box } from "../src/inspect.ts";
@@ -18,7 +18,8 @@ import { applyAccepts, type Finding, type Observation } from "../src/observe.ts"
 import { outlineOf } from "../src/outline.ts";
 import { comparePixels, decodePng, encodePng, frame, type Image } from "../src/png.ts";
 import { checkText } from "../src/report.ts";
-import { closedWorldSwitches, findReply, judge, reachableHosts, resolverSwitch, sameApp, startUpstreams } from "../src/world.ts";
+import { closeSessions, openSession } from "../src/run.ts";
+import { allowsHost, closedWorldSwitches, findReply, isAppElsewhere, isOwnAddress, judge, reachableHosts, resolverSwitch, sameApp, startUpstreams, stoppedByClosedWorld } from "../src/world.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "ra-unit-"));
 after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -198,14 +199,76 @@ describe("the closed world", () => {
     const hosts = reachableHosts([{ allow: ["https://fonts.example.com/**", "/local/path", "GET *.cdn.example", "localhost:8080/api/**"] }])!;
     assert.deepEqual(hosts, ["fonts.example.com", "*.cdn.example", "localhost:8080"]);
     assert.deepEqual(closedWorldSwitches("http://127.0.0.1:4000", hosts), [
-      "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE *.localhost , EXCLUDE 127.0.0.1 , EXCLUDE fonts.example.com , EXCLUDE *.cdn.example",
+      "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE *.localhost , EXCLUDE 127.0.0.1 , EXCLUDE ::1 , EXCLUDE 0.0.0.0 , EXCLUDE fonts.example.com , EXCLUDE *.cdn.example",
       "--proxy-server=http://127.0.0.1:1",
       "--proxy-bypass-list=<-loopback>;127.0.0.1:4000;localhost:4000;[::1]:4000;0.0.0.0:4000;fonts.example.com;*.cdn.example;localhost:8080",
       "--webrtc-ip-handling-policy=disable_non_proxied_udp",
     ]);
+    // A deployment's entry names its port even when it is the default, since one without a port lets every port through.
     const deployment = closedWorldSwitches("https://www.example.com", []);
     assert.match(deployment[0]!, /EXCLUDE www\.example\.com$/u);
-    assert.equal(deployment[2], "--proxy-bypass-list=<-loopback>;www.example.com");
+    assert.equal(deployment[2], "--proxy-bypass-list=<-loopback>;www.example.com:443");
+    assert.equal(closedWorldSwitches("http://app.example.com:8080", [])[2], "--proxy-bypass-list=<-loopback>;app.example.com:8080");
+  });
+
+  test("knows which addresses the browser lets through as the app's own", () => {
+    assert.equal(isOwnAddress(new URL("https://www.example.com/a"), "https://www.example.com"), true);
+    assert.equal(isOwnAddress(new URL("https://www.example.com:443/a"), "https://www.example.com"), true, "the default port, named");
+    assert.equal(isOwnAddress(new URL("http://www.example.com:8080/a"), "https://www.example.com"), false, "another port of the same host");
+    assert.equal(isOwnAddress(new URL("https://api.example.com/a"), "https://www.example.com"), false);
+    assert.equal(isOwnAddress(new URL("http://localhost:5000/a"), "http://127.0.0.1:5000"), true, "any loopback name");
+    assert.equal(isOwnAddress(new URL("http://[::1]:5000/a"), "http://0.0.0.0:5000"), true);
+    assert.equal(isOwnAddress(new URL("https://127.0.0.1:5000/a"), "http://127.0.0.1:5000"), true, "the browser goes by host and port, whatever the scheme");
+    assert.equal(isOwnAddress(new URL("http://127.0.0.1:5001/a"), "http://127.0.0.1:5000"), false);
+  });
+
+  test("says a failed request was stopped only when the closed world stopped it", () => {
+    const origin = "http://127.0.0.1:5000";
+    const hosts = ["api.example.com", "cdn.example.com:8443"];
+    const stopped = (url: string, error: string, reachable: readonly string[] | null = hosts) => stoppedByClosedWorld(new URL(url), error, origin, reachable);
+    assert.equal(stopped("https://other.example.com/a", "net::ERR_TUNNEL_CONNECTION_FAILED"), true, "the proxy refused it");
+    assert.equal(stopped("https://api.example.com/a", "net::ERR_TUNNEL_CONNECTION_FAILED"), true, "a refusal by the proxy is the last word");
+    assert.equal(stopped("https://api.example.com/a", "net::ERR_NAME_NOT_RESOLVED"), false, "an allowed host failed by itself");
+    assert.equal(stopped("http://localhost:5000/a", "net::ERR_CONNECTION_REFUSED"), false, "the app's own address");
+    assert.equal(stopped("https://cdn.example.com:8443/a", "net::ERR_CONNECTION_RESET"), false, "an allowed host on the port its rule names");
+    assert.equal(stopped("https://cdn.example.com/a", "net::ERR_ABORTED"), true, "another port of a host allowed on one port only");
+    assert.equal(stopped("http://other.example.com:6000/a", "net::ERR_UNSAFE_PORT"), true, "the browser refused it before the proxy could");
+    assert.equal(stopped("https://other.example.com/a", "net::ERR_TUNNEL_CONNECTION_FAILED", null), false, "nothing is stopped when every host is let through");
+  });
+
+  test("knows the app's own site at another address", () => {
+    assert.equal(isAppElsewhere(new URL("https://example.com/"), "http://example.com"), true, "upgraded to https");
+    assert.equal(isAppElsewhere(new URL("https://www.example.com/a"), "https://example.com"), true, "with www.");
+    assert.equal(isAppElsewhere(new URL("https://example.com/a"), "http://www.example.com"), true, "upgraded, without www.");
+    assert.equal(isAppElsewhere(new URL("https://example.com/a"), "https://example.com"), false, "the app itself");
+    assert.equal(isAppElsewhere(new URL("http://example.com/a"), "https://example.com"), false, "downgraded");
+    assert.equal(isAppElsewhere(new URL("https://example.com:8443/a"), "https://example.com"), false, "another port");
+    assert.equal(isAppElsewhere(new URL("https://app.example.com/a"), "https://example.com"), false, "another host");
+    assert.equal(isAppElsewhere(new URL("http://www.app.localhost:5000/"), "http://app.localhost:5000"), true);
+  });
+
+  test("lets an app on this machine through by any loopback name it is given as", () => {
+    for (const origin of ["http://0.0.0.0:5000", "http://[::1]:5000", "http://localhost:5000"]) {
+      const [resolver, , bypass] = closedWorldSwitches(origin, []);
+      // Chromium compares resolver rules with the bare host, so the IPv6 address has no brackets there.
+      assert.equal(resolver, "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE *.localhost , EXCLUDE 127.0.0.1 , EXCLUDE ::1 , EXCLUDE 0.0.0.0", origin);
+      assert.equal(bypass, "--proxy-bypass-list=<-loopback>;127.0.0.1:5000;localhost:5000;[::1]:5000;0.0.0.0:5000", origin);
+    }
+    const six = closedWorldSwitches("http://[2001:db8::1]:8443", ["[2001:db8::2]:9000"]);
+    assert.match(six[0]!, /EXCLUDE 2001:db8::1 , EXCLUDE 2001:db8::2$/u);
+    assert.equal(six[2], "--proxy-bypass-list=<-loopback>;[2001:db8::1]:8443;[2001:db8::2]:9000");
+  });
+
+  test("knows which hosts a world lets the browser reach, whatever the path", () => {
+    const world = { allow: ["https://fonts.example.com/css/**", "localhost:8080/api/**", "GET *.cdn.example"] };
+    assert.equal(allowsHost(world, new URL("https://fonts.example.com/other")), true, "the browser cannot tell paths apart");
+    assert.equal(allowsHost(world, new URL("http://localhost:8080/elsewhere")), true);
+    assert.equal(allowsHost(world, new URL("http://localhost:9090/api/x")), false, "a rule with a port names that port only");
+    assert.equal(allowsHost(world, new URL("https://img.cdn.example/a.png")), true);
+    assert.equal(allowsHost(world, new URL("https://example.com/")), false);
+    assert.equal(allowsHost({ allow: ["https://api.example.com:443/**"] }, new URL("https://api.example.com/v1")), true, "the default port, named");
+    assert.equal(allowsHost({ allow: ["*"] }, new URL("https://example.com/")), true);
+    assert.equal(allowsHost({}, new URL("https://example.com/")), false);
   });
 
   test("a stand-in answers with text or bytes, and says when a reply gives no answer", async () => {
@@ -310,6 +373,20 @@ setInterval(() => undefined, 1000);
     assert.equal(await exited, 130);
     assert.equal(err, "", "an interrupt is not an error");
     await until(() => !alive(sleeper), 5000, "the app outlived an interrupted ra");
+  });
+
+  test("closing every session waits for one that is still starting its app, and stops the app", async () => {
+    const project = mkdtempSync(join(scratch, "opening-"));
+    const pids = join(project, "pids");
+    writeFileSync(join(project, "ra.config.ts"), `export default { app: { command: ${JSON.stringify(`sleep 300 & echo $! > ${pids}; sleep 300`)}, timeout: 60 }, states: { home: "/" } };\n`);
+    const opening = openSession(await loadProject(project));
+    const refused = assert.rejects(opening, /^AppError: ra stopped the app before it answered \(.*\), because the run was closing\.$/su);
+    await until(() => existsSync(pids) && readFileSync(pids, "utf8").trim() !== "", 10_000, "the app never started");
+    const sleeper = Number(readFileSync(pids, "utf8"));
+    await closeSessions();
+    // The keeper exits once the app's whole group is gone; allow a moment for the system to reap it.
+    await until(() => !alive(sleeper), 1000, "closeSessions returned while the app was still running");
+    await refused;
   });
 
   test("a static file that cannot be read fails that response, and the server keeps going", async (t) => {

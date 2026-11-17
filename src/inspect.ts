@@ -917,9 +917,21 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
   if (!scope) {
     const media = all.some((el) => /^(?:img|svg|canvas|video|iframe|input|button|select|textarea)$/.test(el.localName) && visible(el));
     if (runs.length === 0 && !media) report("blank", "The page shows nothing: no text, picture or control is visible.", null);
-    if (squash(doc.title) === "") report("document", "The page has no title.", null);
-    if (options.touch && !doc.querySelector('meta[name="viewport"]')) {
-      report("document", 'The page has no <meta name="viewport">, so phones lay it out at desktop width and shrink it.', null);
+    // A title and a viewport belong to HTML. A page served as plain text, JSON
+    // or a picture has neither to give, so their absence is not a finding,
+    // unless the plain text is a web page served with the wrong type.
+    if (doc.contentType !== "text/html" && doc.contentType !== "application/xhtml+xml") {
+      const start = (body.textContent ?? "").trimStart().slice(0, 64);
+      if (doc.contentType === "text/plain" && /^<(?:!doctype\s+html|html|head|body)[\s>]/iu.test(start)) {
+        report("document", "The page is HTML served as text/plain, so the browser shows its markup as text. Serve it as text/html.", null);
+      } else {
+        notes.push(`The page is ${doc.contentType}, not HTML, so ra did not look for a title or a viewport.`);
+      }
+    } else {
+      if (squash(doc.title) === "") report("document", "The page has no title.", null);
+      if (options.touch && !doc.querySelector('meta[name="viewport"]')) {
+        report("document", 'The page has no <meta name="viewport">, so phones lay it out at desktop width and shrink it.', null);
+      }
     }
     const vite = doc.querySelector("vite-error-overlay");
     const next = doc.querySelector("nextjs-portal")?.shadowRoot?.querySelector('[data-nextjs-dialog], [role="dialog"]');

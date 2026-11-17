@@ -8,6 +8,12 @@ export default defineConfig({
     tricky: { url: "/tricky", note: "Deliberate clipping, scrolling and hiding that must not be reported." },
     broken: { url: "/broken", note: "One of every problem." },
     untitled: { url: "/untitled", views: ["phone"] },
+    // A strict Content-Security-Policy, which ra's own looking must not trip.
+    strict: { url: "/strict", views: ["desktop"], note: "Two pale lines, one in a shadow root, on a page that allows no inline style." },
+    // Plain text has no title or viewport to give, and is not faulted for it.
+    plain: { url: "/gone.txt", views: ["phone"] },
+    // A web page served as plain text is a finding, not a note.
+    mislabeled: { url: "/mislabeled.txt", views: ["phone"] },
     // The world answers 503 on purpose: the error state is the subject, not a finding.
     outage: {
       url: "/outage",

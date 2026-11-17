@@ -19,7 +19,7 @@ ra check — 5 states, 11 looks in 6.8s — http://127.0.0.1:63519
   page-scroll   The page scrolls sideways by 531px. Sticking out: div.too-wide "This box is 900 pixels wide whatever th…" (900px wide, ends 530px past the edge). [phone, phone.dark]
   …
 ✗ leave  /leave
-  load     The page did not load, because it was sent outside its world (net::ERR_PROXY_CONNECTION_FAILED at http://127.0.0.1:63519/leave). The outside finding says where.
+  load     The page did not load, because a redirect from /leave sent it outside its world, to https://example.com/ (net::ERR_PROXY_CONNECTION_FAILED at http://127.0.0.1:63519/leave). The outside finding says more.
   outside  A redirect from /leave tried to take the page to https://example.com/, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for example.com cannot answer it. Give /leave a reply that does not redirect there, or list example.com under block to stop it quietly, or under allow to let it through.
 
 ✓ home
@@ -68,7 +68,7 @@ Browser checks are slow, flaky when written carelessly, and easy to write in way
 ra needs Node 22.18 or later and a Playwright in your project: `playwright-core`, `playwright` or `@playwright/test`. Install ra from its GitHub release:
 
 ```sh
-bun add -d https://github.com/hraness/ra/releases/download/v0.1.0/hraness-ra-0.1.0.tgz playwright-core
+bun add -d https://github.com/hraness/ra/releases/download/v0.1.1/hraness-ra-0.1.1.tgz playwright-core
 bunx --no-install playwright-core install chromium
 ```
 
@@ -168,7 +168,7 @@ With `command`, the app runs in its own process group under a small keeper proce
 
 ra decides what happens to each request in this order: a reply, then a block, then the app itself, then an allow. Anything else is stopped and reported as an `outside` finding.
 
-The browser follows a redirect by itself, so routing sees only the first request. A reply cannot answer where a redirect leads: give the reply to the address that redirects. ra stops every hop that leaves the app and its allowed hosts, and reports it. It stops a hop by its host, so a hop to an allowed host goes through even when the allow rule names only some paths there; ra reports that hop as having gone through.
+The browser follows a redirect by itself, so routing sees only the first request. A reply cannot answer where a redirect leads: give the reply to the address that redirects. ra stops every hop that leaves the app and its allowed hosts, and reports it. It stops a hop by its host, so a hop goes through to an allowed host even when the allow rule names only some paths there, and to any path on the app, even one under `block`. The states of one run share a browser, so a host that one state allows is open to the others' redirects too. ra reports each such hop as having gone through, and says why.
 
 **`states`** are named entries. Each is a path, or an object with these fields:
 
@@ -188,7 +188,7 @@ The browser follows a redirect by itself, so routing sees only the first request
 
 A state with its own world or steps only makes sense on your machine. Against a deployment, `ra check --url https://…` skips such states unless they are marked `live`, and `ra look` refuses them.
 
-Against a deployment, the deployment answers for itself: no reply rule stands in for it, though `block` still applies to its paths. Outside hosts stay closed unless they are allowed, so a check against a deployment shows exactly what the page depends on. It answers whether the deployment looks right, not whether the services behind it work.
+Against a deployment, the deployment answers for itself: no reply rule stands in for it, though `block` still applies to its paths. Outside hosts stay closed unless they are allowed, so a check against a deployment shows exactly what the page depends on. It answers whether the deployment looks right, not whether the services behind it work. Give ra the address the deployment settles on, since only that origin counts as the app: when it redirects to https or to `www.`, the page does not load, and the finding names the address to look at instead.
 
 **`accept`** lists findings you have decided to live with: `{ finding: "contrast", match: "hero", why: "The hero text sits on a photo we test by hand." }`. A `why` is required, and it is printed wherever the finding appears. When every state is checked, `ra check` names the accept entries that matched nothing, so stale ones get removed.
 
@@ -257,7 +257,7 @@ It then launches with:
 
 - a single `--disable-features` switch holding Playwright's list plus `PaintHolding` and `MacAppCodeSignClone`
 - `--mute-audio`
-- the closed world: a proxy that refuses everything, bypassed only for the app and the allowed hosts; a host-resolver rule that lets no other name resolve; and WebRTC held to proxied connections, which that proxy refuses
+- the closed world: a proxy that refuses everything, bypassed only for the app on its own port and for the allowed hosts; a host-resolver rule that lets no other name resolve; and WebRTC held to proxied connections, which that proxy refuses
 
 After launch, ra reads `Browser.getBrowserCommandLine` and refuses to continue unless the running browser has every one of these. Every run ends with a receipt line. `ra doctor` shows the same receipt and tries the closed world: a throwaway app must answer, while another port on this machine, an IP address, an outside host and a WebRTC connection must each be stopped.
 
@@ -268,9 +268,16 @@ ra runs on macOS and Linux and is tested with playwright-core 1.58 through 1.65.
 `defineConfig` is all most projects need. Scripts that drive a browser themselves can also use:
 
 - `openBrowser`: the launch policy and its receipt
-- `closeWorld`: the closed world's routing, applied to any `BrowserContext`. Launch with `openBrowser({ args: closedWorldSwitches(origin, reachableHosts(worlds)) })` so that what routing never sees is stopped too.
+- `closeWorld`: the closed world's routing, applied to any `BrowserContext`. Launch the browser with the switches beneath it, so that what routing never sees is stopped too. `reachableHosts` returns `null` when a world lets every host through, and then there is nothing to close:
+
+  ```ts
+  const hosts = reachableHosts(worlds);
+  const owned = await openBrowser({ args: hosts === null ? [] : closedWorldSwitches(origin, hosts) });
+  ```
+
+  Like Playwright, `openBrowser` closes the browser on SIGINT, SIGTERM and SIGHUP, and exits on Ctrl-C. Pass `handleSignals: false` when your script handles those signals itself.
 - `ruleProblem`: what is wrong with a rule, in words, or `null`
-- `observe` and `inspectPage`: a look
+- `observe` and `inspectPage`: a look. When one browser serves several worlds, pass `observe` the same hosts as `reachable`, so that it knows which redirects the browser let through.
 - `compareLooks`: a diff
 
 ## Where it came from
