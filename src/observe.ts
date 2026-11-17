@@ -10,7 +10,7 @@ import { findLowContrast } from "./contrast.ts";
 import { inspectPage, type Box, type InspectOptions, type Region } from "./inspect.ts";
 import { outlineOf } from "./outline.ts";
 import { decodePng } from "./png.ts";
-import { closeWorld, judge, sameApp, type Verdict } from "./world.ts";
+import { allowsHost, closeWorld, judge, sameApp, type Verdict } from "./world.ts";
 
 export interface Finding {
   /** What sort of problem this is, such as `cut-off` or `contrast`. */
@@ -237,6 +237,15 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
         return null;
       }
     };
+    const onApp = (url: string): boolean => {
+      try {
+        return sameApp(new URL(url), origin);
+      } catch {
+        return false;
+      }
+    };
+    // A deployment answers its own paths, so no reply can stand in for one of them.
+    const replyable = (url: string): boolean => !(live && onApp(url));
     await closeWorld(context, { world: state.world, origin, live, calls, onReplyError: (message) => refused.push(message) });
     const page = await context.newPage();
     page.setDefaultNavigationTimeout(project.timeout);
@@ -263,8 +272,11 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       const from = brief(via, origin);
       const call: Call = { from: "page", type: request.resourceType(), method: request.method(), url: request.url(), body: null, outcome: "unexpected", via };
       if (verdict === "replied") {
+        const fix = replyable(via)
+          ? `Give ${from} the reply instead`
+          : `No reply stands in for ${from} on a deployment, so block ${from}, or look at the app on this machine, where ${from} can have the reply`;
         refused.push(
-          `${request.method()} ${brief(request.url(), origin)} has a reply, but the page reached it through a redirect from ${from}, which the browser follows by itself, so ${reached ? "the real address answered" : "the request failed"}. Give ${from} the reply instead`,
+          `${request.method()} ${brief(request.url(), origin)} has a reply, but the page reached it through a redirect from ${from}, which the browser follows by itself, so ${reached ? "the real address answered" : "the request failed"}. ${fix}`,
         );
       } else if (verdict === "blocked" && !reached) {
         calls.push({ ...call, outcome: "blocked" });
@@ -348,12 +360,27 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       loaded = true;
     } catch (error) {
       const reason = firstLine(error).replace(/^page\.goto: /u, "");
-      add(
-        "load",
-        /ERR_NAME_NOT_RESOLVED|ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(reason)
-          ? `The page did not load, because it was sent outside its world (${reason}). The outside finding says where.`
-          : `The page did not load: ${reason}`,
-      );
+      // When the closed world stopped a redirect of the page itself, say where it led and which finding says more.
+      let last = document as Request | null;
+      while (last?.redirectedTo() != null) last = last.redirectedTo();
+      const stopped = /ERR_NAME_NOT_RESOLVED|ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(reason) && last?.redirectedFrom() != null;
+      if (!stopped || last === null) {
+        add("load", `The page did not load: ${reason}`);
+      } else {
+        const from = brief(startOf(last), origin);
+        const to = brief(last.url(), origin);
+        const verdict = verdictOf(last);
+        add(
+          "load",
+          verdict === "blocked"
+            ? `The page did not load, because a redirect from ${from} took it to ${to}, which its world blocks (${reason}).`
+            : verdict === "replied"
+              ? `The page did not load, because a redirect from ${from} took it to ${to}, which has a reply that the browser could not use, since it follows redirects by itself (${reason}). The request finding says more.`
+              : verdict === "unexpected"
+                ? `The page did not load, because a redirect from ${from} sent it outside its world, to ${to} (${reason}). The outside finding says more.`
+                : `The page did not load, because a redirect from ${from} to ${to} failed (${reason}).`,
+        );
+      }
     }
 
     if (loaded) {
@@ -478,27 +505,55 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       add("request", `${unique.slice(0, 4).join("; ")}${unique.length > 4 ? `; and ${unique.length - 4} more` : ""}.`);
     }
     calls.push(...(options.upstreamCalls?.() ?? []));
-    const strays = new Map<string, Call[]>();
+    // One sentence per host and per fate: hops that went through come first,
+    // since there the world did not hold, then hops that were stopped, then
+    // everything else.
+    const strays = new Map<string, { key: string; fate: number; list: Call[] }>();
     for (const call of calls) {
       observation.requests[call.outcome]++;
       if (call.outcome !== "unexpected") continue;
       const key = call.from === "page" ? new URL(call.url).host : call.from;
-      strays.set(key, [...(strays.get(key) ?? []), call]);
+      const fate = call.via === undefined ? 2 : call.reached === true ? 0 : 1;
+      const group = strays.get(`${fate} ${key}`) ?? { key, fate, list: [] };
+      group.list.push(call);
+      strays.set(`${fate} ${key}`, group);
     }
-    for (const [key, list] of strays) {
+    for (const { key, list } of [...strays.values()].sort((a, b) => a.fate - b.fate)) {
       const first = list[0]!;
       const more = list.length > 1 ? `, and ${list.length - 1} more from there` : "";
       if (first.from !== "page") {
         add("outside", `The app's server asked its "${key.replace("upstream:", "")}" upstream for ${first.method} ${first.url}${more}; this world has no reply for it.`);
-      } else if (first.via !== undefined && first.reached === true) {
-        add(
-          "outside",
-          `A redirect from ${brief(first.via, origin)} took the page to ${brief(first.url, origin)}${more}, which its world does not allow, and the request went through, because ${key} is allowed and ra can stop a redirect only by its host. Give ${brief(first.via, origin)} a reply that does not redirect there, or allow that address too.`,
-        );
       } else if (first.via !== undefined) {
+        // A hop that went through, or one that was stopped. A redirect can move the page itself or one thing it asked for.
+        const from = brief(first.via, origin);
+        const what = first.type === "document" ? "the page" : `the page's request for ${ASKED_FOR[first.type] ?? "something"}`;
+        if (first.reached !== true) {
+          const fix = replyable(first.via)
+            ? `Give ${from} a reply that does not redirect there, or list ${key} under block to stop it quietly, or under allow to let it through.`
+            : `List ${key} under block to stop it quietly, or under allow to let it through; no reply stands in for ${from} on a deployment.`;
+          add(
+            "outside",
+            `A redirect from ${from} tried to take ${what} to ${brief(first.url, origin)}${more}, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for ${key} cannot answer it. ${fix}`,
+          );
+          continue;
+        }
+        const target = new URL(first.url);
+        const blocked = judge(state.world, origin, first.method, target, { live }) === "blocked";
+        const why = sameApp(target, origin)
+          ? "it is on the app's own address"
+          : allowsHost(state.world, target)
+            ? `${key} is allowed`
+            : `${key} is allowed in another state's world, and the states share one browser`;
+        const fix = blocked
+          ? replyable(first.via)
+            ? `Give ${from} a reply that does not redirect there, or block ${from} too.`
+            : `Block ${from} too.`
+          : replyable(first.via)
+            ? `Give ${from} a reply that does not redirect there, or allow that address too.`
+            : `Allow that address too, or block ${from}.`;
         add(
           "outside",
-          `A redirect from ${brief(first.via, origin)} tried to take the page to ${brief(first.url, origin)}${more}, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for ${key} cannot answer it. Give ${brief(first.via, origin)} a reply that does not redirect there, or list ${key} under block to stop it quietly, or under allow to let it through.`,
+          `A redirect from ${from} took ${what} to ${brief(first.url, origin)}${more}, which its world ${blocked ? "blocks" : "does not allow"}, and the request went through, because ${why}, and ra can stop a redirect only by its host. ${fix}`,
         );
       } else if (first.type === "document") {
         add("outside", `The page tried to leave for ${brief(first.url, origin)}, which is not in its world. Give ${key} a reply, or list it under allow or block.`);

@@ -72,6 +72,8 @@ async function withSession<T>(project: Project, flags: Flags, extra: { url?: str
     if (problem !== null) throw new UsageError(`--allow ${rule}: ${problem}.`);
   }
   const session = await openSession(project, {
+    // ra handles Ctrl-C itself, below, and stops the app before it exits.
+    handleSignals: false,
     ...(url === undefined ? {} : { url }),
     ...(flags.allow === undefined ? {} : { allow: flags.allow }),
     ...(extra.states === undefined ? {} : { states: extra.states }),
@@ -280,7 +282,7 @@ async function doctor(project: Project, flags: Flags): Promise<number> {
     const trial = await closedWorldTrial();
     let leaks: string[];
     try {
-      const owned = await openBrowser({ from: project.root, args: closedWorldSwitches(trial.origin, []) });
+      const owned = await openBrowser({ from: project.root, args: closedWorldSwitches(trial.origin, []), handleSignals: false });
       receipt = owned.receipt;
       try {
         leaks = await trial.run(owned.browser);

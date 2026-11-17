@@ -8,7 +8,7 @@ import type { AddressInfo } from "node:net";
 import type { Browser, BrowserContext, Request, Route } from "playwright-core";
 import type { Call, Replier, Replies, Reply, RequestInfo, World } from "./config.ts";
 
-const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]", "0.0.0.0"]);
 
 /** Whether an address belongs to the app: the same origin, counting every loopback name as one host. */
 export function sameApp(url: URL, origin: string): boolean {
@@ -206,9 +206,22 @@ export function reachableHosts(worlds: readonly World[]): string[] | null {
   return [...hosts];
 }
 
+/**
+ * Whether a world lets the browser reach this host at all, on any path. The
+ * browser's switches tell hosts apart but not paths.
+ */
+export function allowsHost(world: World, url: URL): boolean {
+  const hosts = reachableHosts([world]);
+  if (hosts === null) return true;
+  // A rule may name the port even when it is the default, which the address leaves out.
+  const names = [url.hostname, `${url.hostname}:${url.port || (url.protocol === "https:" ? "443" : "80")}`];
+  return hosts.some((host) => names.some((name) => glob(host).test(name)));
+}
+
 /** Makes every host name fail to resolve except loopback and the hosts given. */
 export function resolverSwitch(hosts: readonly string[]): string {
-  const names = hosts.map((host) => host.replace(/:\d+$/u, "")).filter((host) => host !== "");
+  // Chromium compares these with the bare host: no port, and no brackets around an IPv6 address.
+  const names = hosts.map((host) => host.replace(/:\d+$/u, "").replace(/^\[(.*)\]$/u, "$1")).filter((host) => host !== "");
   const open = [...new Set(["localhost", "*.localhost", "127.0.0.1", ...names])];
   return `--host-resolver-rules=MAP * ~NOTFOUND , ${open.map((host) => `EXCLUDE ${host}`).join(" , ")}`;
 }
@@ -228,10 +241,10 @@ const NOWHERE = "http://127.0.0.1:1";
 export function closedWorldSwitches(origin: string, hosts: readonly string[]): string[] {
   const app = new URL(origin);
   const port = app.port || (app.protocol === "https:" ? "443" : "80");
-  const loopback = LOOPBACK.has(app.hostname);
-  const own = loopback ? ["127.0.0.1", "localhost", "[::1]", "0.0.0.0"].map((name) => `${name}:${port}`) : [app.host];
+  // An app on this machine answers to every loopback name, on its own port only.
+  const own = LOOPBACK.has(app.hostname) ? [...LOOPBACK].map((name) => `${name}:${port}`) : [app.host];
   return [
-    resolverSwitch(loopback ? hosts : [app.hostname, ...hosts]),
+    resolverSwitch([...own, ...hosts]),
     `--proxy-server=${NOWHERE}`,
     `--proxy-bypass-list=${["<-loopback>", ...own, ...hosts].join(";")}`,
     "--webrtc-ip-handling-policy=disable_non_proxied_udp",

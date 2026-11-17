@@ -169,22 +169,51 @@ jobs:
             fi
           }
 
-          # A rerun after a published release only confirms it. A draft left
-          # by an earlier failed run is removed; the tag stays.
-          existing="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          # Prints true for a draft, false for a published release, and an
+          # empty line when there is none. Any other failure fails the step,
+          # so an outage is never mistaken for a missing release.
+          release_state() {
+            local out
+            if out="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>"$RUNNER_TEMP/view-error")"; then
+              echo "$out"
+            elif grep -qx 'release not found' "$RUNNER_TEMP/view-error"; then
+              echo
+            else
+              echo "::error::Could not read release $GITHUB_REF_NAME: $(cat "$RUNNER_TEMP/view-error")" >&2
+              return 1
+            fi
+          }
+
+          # A rerun after a published release only confirms it. Drafts left
+          # by earlier failed runs are removed; the tag stays.
+          existing="$(release_state)"
           if [[ "$existing" == "false" ]]; then
             check_published
             echo "$GITHUB_REF_NAME was already published with $TARBALL (sha256:$SHA256)"
             exit 0
-          elif [[ "$existing" == "true" ]]; then
+          fi
+          for _ in 1 2 3 4 5; do
+            [[ "$existing" == "true" ]] || break
             gh release delete "$GITHUB_REF_NAME" --yes
+            existing="$(release_state)"
+          done
+          if [[ -n "$existing" ]]; then
+            echo "::error::Release $GITHUB_REF_NAME still exists after removing old drafts"
+            exit 1
           fi
 
           # Upload to a draft and prove the uploaded bytes before publishing,
-          # since a published immutable release cannot be corrected.
-          published=false
+          # since a published immutable release cannot be corrected. Once
+          # publishing has been tried, the release is never deleted: GitHub
+          # may have published it even when gh reports a failure, and an
+          # immutable release's tag cannot be used again. A draft that is
+          # still there is removed by the next run.
+          attempted=false
           remove_draft() {
-            if [[ "$published" != "true" ]] && [[ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)" == "true" ]]; then
+            if [[ "$attempted" == "true" ]]; then
+              return 0
+            fi
+            if [[ "$(release_state 2>/dev/null || true)" == "true" ]]; then
               gh release delete "$GITHUB_REF_NAME" --yes || true
               echo "::error::Removed the unpublished draft of $GITHUB_REF_NAME"
             fi
@@ -202,7 +231,10 @@ jobs:
             echo "::error::The draft's asset is not the tarball that was verified"
             exit 1
           fi
-          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
-          published=true
+          attempted=true
+          if ! gh release edit "$GITHUB_REF_NAME" --draft=false --latest; then
+            echo "::error::Publishing $GITHUB_REF_NAME failed or went unconfirmed. Rerun this job: it confirms a published release, or replaces a draft."
+            exit 1
+          fi
           check_published
           echo "Published $GITHUB_REF_NAME with $TARBALL (sha256:$SHA256)"

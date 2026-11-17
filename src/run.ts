@@ -20,6 +20,8 @@ export interface SessionOptions {
   states?: readonly State[];
   /** Receives the app's output while it starts. */
   log?: (line: string) => void;
+  /** Let Playwright close the browser and exit on Ctrl-C, as it does by default. See `OpenBrowserOptions`. */
+  handleSignals?: boolean;
 }
 
 export interface Job {
@@ -91,23 +93,28 @@ export async function openSession(project: Project, options: SessionOptions = {}
   let upstreams: Upstreams | undefined;
   let app: RunningApp | undefined;
   let owned: OwnedBrowser | undefined;
+  const stop = async () => {
+    await owned?.close().catch(() => undefined);
+    await app?.stop().catch(() => undefined);
+    await upstreams?.close().catch(() => undefined);
+  };
   let closing: Promise<void> | undefined;
   const close = () => {
-    closing ??= (async () => {
-      await owned?.close().catch(() => undefined);
-      await app?.stop().catch(() => undefined);
-      await upstreams?.close().catch(() => undefined);
-      open.delete(close);
-    })();
+    closing ??= stop().finally(() => open.delete(close));
     return closing;
   };
   open.add(close);
+  // Closing can come while the session is still opening, such as on Ctrl-C.
+  const closedWhileOpening = () => {
+    if (closing !== undefined) throw new Error("The session was closed while it was opening.");
+  };
 
   try {
     if (names.length > 0 && external) {
       notes.push(`ra did not start this app, so its upstream stand-ins (${names.join(", ")}) are not in use; the app's server talks to whatever it is configured for.`);
     } else if (names.length > 0) {
       upstreams = await startUpstreams(names);
+      closedWhileOpening();
     }
     app = await startApp(project.app, {
       root: project.root,
@@ -115,12 +122,18 @@ export async function openSession(project: Project, options: SessionOptions = {}
       ...(options.url === undefined ? {} : { url: options.url }),
       ...(options.log === undefined ? {} : { log: options.log }),
     });
+    closedWhileOpening();
     const origin = app.origin;
     const live = !LOOPBACK.has(new URL(origin).hostname);
     const extra = [...(options.allow ?? [])];
     const hosts = reachableHosts([...states.map((state) => state.world), { allow: extra }]);
     if (hosts === null) notes.push("This run lets every outside host through, so nothing stops a request that leaves the app.");
-    owned = await openBrowser({ from: project.root, args: hosts === null ? [] : closedWorldSwitches(origin, hosts) });
+    owned = await openBrowser({
+      from: project.root,
+      args: hosts === null ? [] : closedWorldSwitches(origin, hosts),
+      ...(options.handleSignals === undefined ? {} : { handleSignals: options.handleSignals }),
+    });
+    closedWhileOpening();
     const browser = owned.browser;
     const accepted = new Set<Accept>();
 
@@ -172,6 +185,8 @@ export async function openSession(project: Project, options: SessionOptions = {}
     };
   } catch (error) {
     await close();
+    // A close that came while this was opening ran before these had started.
+    await stop();
     throw error;
   }
 }

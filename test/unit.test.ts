@@ -18,7 +18,7 @@ import { applyAccepts, type Finding, type Observation } from "../src/observe.ts"
 import { outlineOf } from "../src/outline.ts";
 import { comparePixels, decodePng, encodePng, frame, type Image } from "../src/png.ts";
 import { checkText } from "../src/report.ts";
-import { closedWorldSwitches, findReply, judge, reachableHosts, resolverSwitch, sameApp, startUpstreams } from "../src/world.ts";
+import { allowsHost, closedWorldSwitches, findReply, judge, reachableHosts, resolverSwitch, sameApp, startUpstreams } from "../src/world.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "ra-unit-"));
 after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -198,7 +198,7 @@ describe("the closed world", () => {
     const hosts = reachableHosts([{ allow: ["https://fonts.example.com/**", "/local/path", "GET *.cdn.example", "localhost:8080/api/**"] }])!;
     assert.deepEqual(hosts, ["fonts.example.com", "*.cdn.example", "localhost:8080"]);
     assert.deepEqual(closedWorldSwitches("http://127.0.0.1:4000", hosts), [
-      "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE *.localhost , EXCLUDE 127.0.0.1 , EXCLUDE fonts.example.com , EXCLUDE *.cdn.example",
+      "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE *.localhost , EXCLUDE 127.0.0.1 , EXCLUDE ::1 , EXCLUDE 0.0.0.0 , EXCLUDE fonts.example.com , EXCLUDE *.cdn.example",
       "--proxy-server=http://127.0.0.1:1",
       "--proxy-bypass-list=<-loopback>;127.0.0.1:4000;localhost:4000;[::1]:4000;0.0.0.0:4000;fonts.example.com;*.cdn.example;localhost:8080",
       "--webrtc-ip-handling-policy=disable_non_proxied_udp",
@@ -206,6 +206,30 @@ describe("the closed world", () => {
     const deployment = closedWorldSwitches("https://www.example.com", []);
     assert.match(deployment[0]!, /EXCLUDE www\.example\.com$/u);
     assert.equal(deployment[2], "--proxy-bypass-list=<-loopback>;www.example.com");
+  });
+
+  test("lets an app on this machine through by any loopback name it is given as", () => {
+    for (const origin of ["http://0.0.0.0:5000", "http://[::1]:5000", "http://localhost:5000"]) {
+      const [resolver, , bypass] = closedWorldSwitches(origin, []);
+      // Chromium compares resolver rules with the bare host, so the IPv6 address has no brackets there.
+      assert.equal(resolver, "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE *.localhost , EXCLUDE 127.0.0.1 , EXCLUDE ::1 , EXCLUDE 0.0.0.0", origin);
+      assert.equal(bypass, "--proxy-bypass-list=<-loopback>;127.0.0.1:5000;localhost:5000;[::1]:5000;0.0.0.0:5000", origin);
+    }
+    const six = closedWorldSwitches("http://[2001:db8::1]:8443", ["[2001:db8::2]:9000"]);
+    assert.match(six[0]!, /EXCLUDE 2001:db8::1 , EXCLUDE 2001:db8::2$/u);
+    assert.equal(six[2], "--proxy-bypass-list=<-loopback>;[2001:db8::1]:8443;[2001:db8::2]:9000");
+  });
+
+  test("knows which hosts a world lets the browser reach, whatever the path", () => {
+    const world = { allow: ["https://fonts.example.com/css/**", "localhost:8080/api/**", "GET *.cdn.example"] };
+    assert.equal(allowsHost(world, new URL("https://fonts.example.com/other")), true, "the browser cannot tell paths apart");
+    assert.equal(allowsHost(world, new URL("http://localhost:8080/elsewhere")), true);
+    assert.equal(allowsHost(world, new URL("http://localhost:9090/api/x")), false, "a rule with a port names that port only");
+    assert.equal(allowsHost(world, new URL("https://img.cdn.example/a.png")), true);
+    assert.equal(allowsHost(world, new URL("https://example.com/")), false);
+    assert.equal(allowsHost({ allow: ["https://api.example.com:443/**"] }, new URL("https://api.example.com/v1")), true, "the default port, named");
+    assert.equal(allowsHost({ allow: ["*"] }, new URL("https://example.com/")), true);
+    assert.equal(allowsHost({}, new URL("https://example.com/")), false);
   });
 
   test("a stand-in answers with text or bytes, and says when a reply gives no answer", async () => {

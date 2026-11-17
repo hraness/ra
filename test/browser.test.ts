@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -43,6 +43,11 @@ function kinds(looks: Observation[], state: string, view: string): string[] {
   const look = looks.find((candidate) => candidate.state === state && candidate.view === view);
   assert.ok(look !== undefined, `no look at ${state} through ${view}`);
   return look.findings.map((finding) => finding.kind).sort();
+}
+
+/** A small page with nothing wrong on it. */
+function html(title: string, body: string): string {
+  return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head><body><main><h1>${title}</h1>${body}</main></body></html>`;
 }
 
 /** A copy of the fixture site whose config imports ra by absolute path, so it can be changed freely. */
@@ -171,18 +176,22 @@ describe("ra look", () => {
 });
 
 describe("the closed world", () => {
-  test("stops a redirect to another port on this machine, and owns up to one that slips through an allowed host", async () => {
+  test("stops redirects that leave the world, and owns up to the ones that go through by host", async () => {
     const seen: string[] = [];
     const other = createServer((request, response) => {
-      seen.push(request.url ?? "/");
-      response
-        .writeHead(200, { "content-type": "text/html; charset=utf-8" })
-        .end('<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Other</title></head><body><main><h1>Reached</h1></main></body></html>');
+      const path = request.url ?? "/";
+      seen.push(path);
+      if (path.endsWith(".js")) response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end("");
+      else response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(html("Other", "<p>Reached.</p>"));
     });
     await new Promise<void>((done) => other.listen(0, "127.0.0.1", done));
     const port = (other.address() as AddressInfo).port;
     try {
       const copy = copySite();
+      mkdirSync(join(copy, "track"));
+      cpSync(join(copy, "ok.png"), join(copy, "track", "p.png"));
+      writeFileSync(join(copy, "pixel.html"), html("Pixel", '<img src="/pixel" alt="">'));
+      writeFileSync(join(copy, "mixed.html"), html("Mixed", `<script src="/hop"></script><script src="http://localhost:${port}/direct.js"></script>`));
       writeFileSync(
         join(copy, "ra.config.ts"),
         `import { defineConfig } from ${JSON.stringify(index)};
@@ -195,6 +204,15 @@ export default defineConfig({
       url: "/slip",
       world: { replies: { "GET /slip": { status: 302, headers: { location: "http://localhost:${port}/secret" } } }, allow: ["localhost:${port}/ok/**"] },
     },
+    // The page itself is sent to a host that its world blocks.
+    gone: {
+      url: "/gone",
+      world: { replies: { "GET /gone": { status: 302, headers: { location: "http://127.0.0.1:${port}/away" } } }, block: ["127.0.0.1:${port}"] },
+    },
+    // An image is sent to a path on the app that its world blocks.
+    pixel: { url: "/pixel.html", world: { replies: { "GET /pixel": { status: 302, headers: { location: "/track/p.png" } } }, block: ["/track/**"] } },
+    // A script is sent to a host that only slip's world allows; the states share one browser.
+    mixed: { url: "/mixed.html", world: { replies: { "GET /hop": { status: 302, headers: { location: "http://localhost:${port}/hopped.js" } } } } },
   },
 });
 `,
@@ -202,20 +220,128 @@ export default defineConfig({
       const ran = await ra(["check", "--json"], copy);
       assert.equal(ran.status, 1, ran.err);
       const found = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+      const said = (state: string, kind: string) =>
+        found
+          .find((look) => look.state === state)!
+          .findings.filter((finding) => finding.kind === kind)
+          .map((finding) => finding.message);
+
       assert.deepEqual(kinds(found, "escape", "desktop"), ["load", "outside"]);
-      const escape = found.find((look) => look.state === "escape")!;
-      assert.match(escape.findings.find((finding) => finding.kind === "outside")!.message, /^A redirect from \/escape tried to take the page to http:\/\/127\.0\.0\.1:\d+\/escaped, which is not in its world, and was stopped/u);
+      assert.match(said("escape", "outside")[0]!, /^A redirect from \/escape tried to take the page to http:\/\/127\.0\.0\.1:\d+\/escaped, which is not in its world, and was stopped/u);
+      assert.match(
+        said("escape", "load")[0]!,
+        /^The page did not load, because a redirect from \/escape sent it outside its world, to http:\/\/127\.0\.0\.1:\d+\/escaped \(net::ERR_\w+ at \S+\)\. The outside finding says more\.$/u,
+      );
+
       assert.deepEqual(kinds(found, "slip", "desktop"), ["outside"]);
-      const slip = found.find((look) => look.state === "slip")!;
-      assert.match(slip.findings[0]!.message, /^A redirect from \/slip took the page to http:\/\/localhost:\d+\/secret, which its world does not allow, and the request went through, because localhost:\d+ is allowed/u);
+      assert.match(
+        said("slip", "outside")[0]!,
+        /^A redirect from \/slip took the page to http:\/\/localhost:\d+\/secret, which its world does not allow, and the request went through, because localhost:\d+ is allowed, and ra can stop a redirect only by its host\. Give \/slip a reply that does not redirect there, or allow that address too\.$/u,
+      );
+
+      assert.deepEqual(kinds(found, "gone", "desktop"), ["load"]);
+      assert.match(said("gone", "load")[0]!, /^The page did not load, because a redirect from \/gone took it to http:\/\/127\.0\.0\.1:\d+\/away, which its world blocks \(net::ERR_\w+ at \S+\)\.$/u);
+      assert.equal(found.find((look) => look.state === "gone")!.requests.blocked, 1);
+
+      assert.deepEqual(kinds(found, "pixel", "desktop"), ["outside"]);
+      assert.equal(
+        said("pixel", "outside")[0],
+        "A redirect from /pixel took the page's request for an image to /track/p.png, which its world blocks, and the request went through, because it is on the app's own address, and ra can stop a redirect only by its host. Give /pixel a reply that does not redirect there, or block /pixel too.",
+      );
+
+      assert.deepEqual(kinds(found, "mixed", "desktop"), ["outside", "outside"]);
+      const [through, asked] = said("mixed", "outside");
+      assert.match(
+        through!,
+        /^A redirect from \/hop took the page's request for a script to http:\/\/localhost:\d+\/hopped\.js, which its world does not allow, and the request went through, because localhost:\d+ is allowed in another state's world, and the states share one browser, and ra can stop a redirect only by its host\./u,
+        "what went through comes first, apart from what was stopped on the same host",
+      );
+      assert.match(asked!, /^The page asked localhost:\d+ for a script \(GET http:\/\/localhost:\d+\/direct\.js\); nothing in its world answers\./u);
+
       assert.deepEqual(
-        seen.filter((path) => path !== "/favicon.ico"),
-        ["/secret"],
-        "only the hop the finding owns up to reached the other server",
+        seen.filter((path) => path !== "/favicon.ico").sort(),
+        ["/hopped.js", "/secret"],
+        "only the hops the findings own up to reached the other server",
       );
     } finally {
       other.closeAllConnections();
       other.close();
+    }
+  });
+
+  for (const [bind, name] of [
+    ["127.0.0.1", "0.0.0.0"],
+    ["::1", "[::1]"],
+  ] as const) {
+    test(`lets the browser reach an app on this machine at ${name}`, async (t) => {
+      const app = createServer((_request, response) => response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(html("Loopback", "<p>Here.</p>")));
+      try {
+        await new Promise<void>((done, fail) => app.once("error", fail).listen(0, bind, done));
+      } catch (error) {
+        t.skip(`this machine cannot listen on ${bind}: ${(error as Error).message}`);
+        return;
+      }
+      try {
+        const port = (app.address() as AddressInfo).port;
+        const ran = await ra(["look", `http://${name}:${port}/`, "--at", "desktop", "--json"], scratch);
+        assert.equal(ran.status, 0, ran.err);
+        const [look] = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+        assert.deepEqual(look!.findings, []);
+        assert.equal(look!.title, "Loopback");
+      } finally {
+        app.closeAllConnections();
+        app.close();
+      }
+    });
+  }
+
+  test("against a deployment, says to block the deployment's own paths, since no reply stands in for them", async () => {
+    const seen: string[] = [];
+    const redirects: Record<string, string> = {
+      "/widget.js": "https://cdn.example.test/widget.js",
+      "/out.js": "https://elsewhere.example.test/out.js",
+      "/go.js": "/ph/e.js",
+    };
+    const deployment = createServer((request, response) => {
+      const path = request.url ?? "/";
+      seen.push(path);
+      const to = redirects[path];
+      if (to !== undefined) response.writeHead(302, { location: to }).end();
+      else if (path.endsWith(".js")) response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end("");
+      else response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(html("Deployed", Object.keys(redirects).map((script) => `<script src="${script}"></script>`).join("")));
+    });
+    await new Promise<void>((done) => deployment.listen(0, "127.0.0.1", done));
+    try {
+      const port = (deployment.address() as AddressInfo).port;
+      const project = mkdtempSync(join(scratch, "deployed-"));
+      writeFileSync(
+        join(project, "ra.config.ts"),
+        `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({
+  views: ["desktop"],
+  world: { replies: { "https://cdn.example.test/**": { body: "" } }, block: ["/ph/**"] },
+});
+`,
+      );
+      // A name under .localhost reaches this machine, but ra does not count it as
+      // one of the machine's own names, so it treats the app as a deployment.
+      const ran = await ra(["look", `http://app.localhost:${port}/`, "--json"], project);
+      assert.equal(ran.status, 0, ran.err);
+      const [look] = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+      assert.deepEqual(look!.findings.map((finding) => finding.kind).sort(), ["outside", "outside", "request"]);
+      const said = (kind: string) => look!.findings.filter((finding) => finding.kind === kind).map((finding) => finding.message);
+      assert.equal(
+        said("request")[0],
+        "GET https://cdn.example.test/widget.js has a reply, but the page reached it through a redirect from /widget.js, which the browser follows by itself, so the request failed. No reply stands in for /widget.js on a deployment, so block /widget.js, or look at the app on this machine, where /widget.js can have the reply.",
+      );
+      assert.deepEqual(said("outside"), [
+        "A redirect from /go.js took the page's request for a script to /ph/e.js, which its world blocks, and the request went through, because it is on the app's own address, and ra can stop a redirect only by its host. Block /go.js too.",
+        "A redirect from /out.js tried to take the page's request for a script to https://elsewhere.example.test/out.js, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for elsewhere.example.test cannot answer it. List elsewhere.example.test under block to stop it quietly, or under allow to let it through; no reply stands in for /out.js on a deployment.",
+      ]);
+      assert.ok(seen.includes("/ph/e.js"), "the blocked path went through, as the finding says");
+    } finally {
+      deployment.closeAllConnections();
+      deployment.close();
     }
   });
 });
