@@ -56,7 +56,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, playwright: "1.58.2" }
+          # The oldest supported Playwright cannot install its browser on Ubuntu 26.04.
+          - { os: ubuntu-24.04, playwright: "1.58.2" }
           - { os: ubuntu-latest, playwright: "1.62.1" }
           - { os: ubuntu-latest, playwright: "1.65.0" }
           - { os: macos-latest, playwright: "1.65.0" }
