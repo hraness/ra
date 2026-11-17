@@ -12,6 +12,8 @@ export default defineConfig({
     strict: { url: "/strict", views: ["desktop"], note: "Two pale lines, one in a shadow root, on a page that allows no inline style." },
     // Plain text has no title or viewport to give, and is not faulted for it.
     plain: { url: "/gone.txt", views: ["phone"] },
+    // A web page served as plain text is a finding, not a note.
+    mislabeled: { url: "/mislabeled.txt", views: ["phone"] },
     // The world answers 503 on purpose: the error state is the subject, not a finding.
     outage: {
       url: "/outage",

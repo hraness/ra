@@ -117,6 +117,14 @@ describe("ra check on the fixture site", () => {
     assert.ok(plain.notes.includes("The page is text/plain, not HTML, so ra did not look for a title or a viewport."), plain.notes.join("\n"));
   });
 
+  test("says when a web page is served as plain text", () => {
+    const mislabeled = looks.find((look) => look.state === "mislabeled")!;
+    assert.deepEqual(
+      mislabeled.findings.map((finding) => finding.message),
+      ["The page is HTML served as text/plain, so the browser shows its markup as text. Serve it as text/html."],
+    );
+  });
+
   test("treats an error the world was told to give as the state, and a throwing reply as a finding", () => {
     assert.deepEqual(kinds(looks, "outage", "desktop"), []);
     assert.deepEqual(kinds(looks, "faulty", "desktop"), ["request"]);
@@ -188,7 +196,7 @@ describe("ra look", () => {
   test("says how to name a state that does not exist, and exits 2", async () => {
     const ran = await ra(["look", "nowhere"]);
     assert.equal(ran.status, 2);
-    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, broken, untitled, strict, plain, outage, faulty, leave, detours\./u);
+    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, broken, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
   });
 });
 

@@ -77,7 +77,7 @@ Nothing is visible: no text, picture or control.
 
 ### `document`
 
-The page has no title. On touch views, the page has no `<meta name="viewport">`. Or the response status is 400 or higher, or not the `status` the state says it should have. A page that is not HTML, such as plain text or JSON, is not asked for a title or a viewport; a note says what it is.
+The page has no title. On touch views, the page has no `<meta name="viewport">`. Or the response status is 400 or higher, or not the `status` the state says it should have. A page that is not HTML, such as plain text or JSON, is not asked for a title or a viewport; a note says what it is. A web page served as plain text is a finding, since the browser shows its markup instead.
 
 ### `error-overlay`
 
