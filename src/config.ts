@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Page } from "playwright-core";
+import { replyProblem, ruleProblem } from "./world.ts";
 
 /** A request as a reply function sees it, whether it came from the page or from the app's server. */
 export interface RequestInfo {
@@ -20,9 +21,9 @@ export interface Reply {
   status?: number;
   /** Sent as JSON. */
   json?: unknown;
-  /** Sent as is. */
-  body?: string;
-  /** The content type for `body`. Defaults to text/plain. */
+  /** Sent as is: text, or bytes such as an image read from disk. */
+  body?: string | Uint8Array;
+  /** The content type for `body`. Defaults to text/plain, or application/octet-stream for bytes. */
   type?: string;
   headers?: Record<string, string>;
 }
@@ -58,6 +59,10 @@ export interface Call {
   url: string;
   body: string | null;
   outcome: "replied" | "allowed" | "blocked" | "unexpected";
+  /** For a later hop of a redirect, which the browser follows by itself: the address that started it. */
+  via?: string;
+  /** True when a request outside the world went through anyway: a redirect hop to an allowed host, at an address its rule leaves out. */
+  reached?: boolean;
 }
 
 /** What `steps` and `expect` are told about the state they run in. */
@@ -280,13 +285,42 @@ function checkKeys(value: object, allowed: readonly string[], what: string): voi
   }
 }
 
+function checkReplies(replies: unknown, what: string, pathsOnly: boolean): void {
+  if (replies === undefined) return;
+  if (replies === null || typeof replies !== "object" || Array.isArray(replies)) {
+    throw new ConfigError(`${what} maps rules to answers, such as { "GET /api/me": { json: { name: "Ada" } } }.`);
+  }
+  for (const [rule, reply] of Object.entries(replies)) {
+    const problem = ruleProblem(rule);
+    if (problem !== null) throw new ConfigError(`${what}: ${problem}.`);
+    if (pathsOnly && !/^(?:[A-Z]+\s+)?\//u.test(rule.trim())) {
+      throw new ConfigError(`${what}: "${rule}" is not a path. A stand-in answers paths on itself, such as "GET /articles".`);
+    }
+    const wrong = typeof reply === "function" ? null : replyProblem(reply);
+    if (wrong !== null) throw new ConfigError(`${what}: the answer for "${rule}" ${wrong}.`);
+  }
+}
+
 function checkWorld(world: World | undefined, what: string): void {
   if (world === undefined) return;
+  if (world === null || typeof world !== "object" || Array.isArray(world)) throw new ConfigError(`${what} is an object with replies, allow, block or upstreams.`);
   checkKeys(world, WORLD_KEYS, what);
-  for (const list of [world.allow, world.block]) {
-    if (list !== undefined && (!Array.isArray(list) || list.some((rule) => typeof rule !== "string"))) {
-      throw new ConfigError(`${what}: allow and block are lists of address patterns.`);
+  checkReplies(world.replies, `${what}.replies`, false);
+  for (const [name, list] of [["allow", world.allow], ["block", world.block]] as const) {
+    if (list === undefined) continue;
+    if (!Array.isArray(list)) throw new ConfigError(`${what}.${name} is a list of address patterns, such as ["fonts.gstatic.com"].`);
+    for (const rule of list) {
+      const problem = ruleProblem(rule);
+      if (problem !== null) throw new ConfigError(`${what}.${name}: ${problem}.`);
     }
+  }
+  if (world.upstreams === undefined) return;
+  if (world.upstreams === null || typeof world.upstreams !== "object" || Array.isArray(world.upstreams)) {
+    throw new ConfigError(`${what}.upstreams maps each stand-in's name to its replies, such as { content: { "GET /articles": { json: [] } } }.`);
+  }
+  for (const [name, replies] of Object.entries(world.upstreams)) {
+    if (!/^[\w-]+$/u.test(name)) throw new ConfigError(`${what}.upstreams: "${name}" cannot be used as {upstream.${name}}; use letters, digits, - and _.`);
+    checkReplies(replies, `${what}.upstreams.${name}`, true);
   }
 }
 

@@ -19,8 +19,8 @@ ra check — 5 states, 11 looks in 6.8s — http://127.0.0.1:63519
   page-scroll   The page scrolls sideways by 531px. Sticking out: div.too-wide "This box is 900 pixels wide whatever th…" (900px wide, ends 530px past the edge). [phone, phone.dark]
   …
 ✗ leave  /leave
-  load     The page did not load: net::ERR_NAME_NOT_RESOLVED at http://127.0.0.1:63519/leave
-  outside  The page tried to leave for https://example.com/, which is not in its world. Give example.com a reply, or list it under allow or block.
+  load     The page did not load, because it was sent outside its world (net::ERR_PROXY_CONNECTION_FAILED at http://127.0.0.1:63519/leave). The outside finding says where.
+  outside  A redirect from /leave tried to take the page to https://example.com/, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for example.com cannot answer it. Give /leave a reply that does not redirect there, or list example.com under block to stop it quietly, or under allow to let it through.
 
 ✓ home
 ✓ tricky
@@ -58,7 +58,7 @@ Browser checks are slow, flaky when written carelessly, and easy to write in way
    - a layout sketch
    - findings as sentences, each naming the element
    - picture paths, which are there for when the text is not enough
-4. **The world is closed.** Every request that leaves the app is replied to, blocked by name, allowed by name, or stopped and reported. A host-resolver rule backs this up, so redirect hops and IP literals that routing never sees cannot escape either. This holds against deployments too.
+4. **The world is closed.** Every request that leaves the app is replied to, blocked by name, allowed by name, or stopped and reported. Routing judges each request the page makes. Beneath it, the browser sends everything but the app and the allowed hosts to a proxy that refuses it, so the redirect hops, IP addresses and WebRTC traffic that routing never sees are stopped too. This holds against deployments, and `ra doctor` tries it in your browser.
 5. **One browser, launched one way, with a receipt.** ra runs the Chromium that your project's pinned Playwright provisioned. It refuses an installed, auto-updating Google Chrome. It launches with one merged `--disable-features` switch and audio muted, reads the running browser's command line back over CDP to prove it, and prints the result as a receipt.
 6. **Nothing runs inside your app.** There is no SDK, bridge, test build or port to implement. If your app runs, ra can look at it.
 7. **Pixel baselines are ephemeral.** `ra snap` and `ra diff` keep their files in `.ra/`, which ignores itself in git. Nothing ra writes is meant to be committed.
@@ -129,11 +129,11 @@ Node strips the types from `ra.config.ts`, so relative imports in it need their 
 | `ra snap [state…]` | Keeps how the states look now. |
 | `ra diff [state…]` | Says what changed since the snapshot, in words, and writes a copy of each changed picture with the changes framed. |
 | `ra states` | Lists the states this project names. |
-| `ra doctor` | Shows which browser ra runs, and whether it starts. |
+| `ra doctor` | Shows which browser ra runs, starts it, and tries the closed world in it. |
 
 These options work with every command: `--url <origin>` uses an app that is already running, or a deployment. `--allow <host>` lets the page reach that host during this run. `--json` prints data instead of text. `--config <file>` and `--jobs <n>` do what they say.
 
-Exit codes: `0` fine; `1` `ra check` found something; `2` the command or the config is wrong; `3` the app or the browser could not run.
+Exit codes: `0` fine; `1` `ra check` found something; `2` the command or the config is wrong; `3` the app or the browser could not run. On Ctrl-C, ra closes the browser and stops the app, then exits with `130` (`143` for SIGTERM).
 
 ## Config
 
@@ -143,7 +143,7 @@ Exit codes: `0` fine; `1` `ra check` found something; `2` the command or the con
 - `{ static: "dist" }` serves built files. It understands clean URLs and serves a 404 page if there is one.
 - `{ url }` points at an app that is already running.
 
-With `command`, the app gets its own process group, and ra stops the whole group when it is done.
+With `command`, the app runs in its own process group under a small keeper process. The keeper ends the whole group, background jobs included, when ra finishes, when ra is interrupted, and even when ra is killed outright.
 
 **`views`** lists what to look through:
 
@@ -161,12 +161,14 @@ With `command`, the app gets its own process group, and ra stops the whole group
   - a full address: `"https://api.example.com/v1/**"`
   - a host: `"*.example.com"`
 
-  `*` matches within one path segment and `**` matches across segments. The most literal matching rule wins. An answer is `{ status?, json?, body?, type?, headers? }`, or a function of the request that returns one.
+  `*` matches within one path segment and `**` matches across segments. The most literal matching rule wins. An answer is `{ status?, json?, body?, type?, headers? }`, where `body` is text or bytes, or a function of the request that returns one. ra checks every rule and every fixed answer when it reads the config, and says how to write one it cannot use. An answer that a function returns is checked when it is returned.
 - **`block`**: hosts or addresses to drop quietly, such as analytics.
 - **`allow`**: outside hosts the page may really reach, such as a font CDN.
 - **`upstreams`**: stand-in servers for what the app's *server* calls. Each name gets a loopback address, passed to `app.command` and `app.env` as `{upstream.NAME}`. Point your server's API base URL at it.
 
 ra decides what happens to each request in this order: a reply, then a block, then the app itself, then an allow. Anything else is stopped and reported as an `outside` finding.
+
+The browser follows a redirect by itself, so routing sees only the first request. A reply cannot answer where a redirect leads: give the reply to the address that redirects. ra stops every hop that leaves the app and its allowed hosts, and reports it. It stops a hop by its host, so a hop to an allowed host goes through even when the allow rule names only some paths there; ra reports that hop as having gone through.
 
 **`states`** are named entries. Each is a path, or an object with these fields:
 
@@ -184,9 +186,9 @@ ra decides what happens to each request in this order: a reply, then a block, th
 - `scroll: false`: stops ra scrolling through the page.
 - `live: true`: marks the state as safe to look at on a deployment.
 
-A state with its own world or steps only makes sense on your machine. `ra check --url https://…` skips such states unless they are marked `live`.
+A state with its own world or steps only makes sense on your machine. Against a deployment, `ra check --url https://…` skips such states unless they are marked `live`, and `ra look` refuses them.
 
-Against a deployment, the deployment answers its own requests and reply rules for its own paths are ignored. Outside hosts stay closed unless they are allowed, so a check against a deployment shows exactly what the page depends on. It answers whether the deployment looks right, not whether the services behind it work.
+Against a deployment, the deployment answers for itself: no reply rule stands in for it, though `block` still applies to its paths. Outside hosts stay closed unless they are allowed, so a check against a deployment shows exactly what the page depends on. It answers whether the deployment looks right, not whether the services behind it work.
 
 **`accept`** lists findings you have decided to live with: `{ finding: "contrast", match: "hero", why: "The hero text sits on a photo we test by hand." }`. A `why` is required, and it is printed wherever the finding appears. When every state is checked, `ra check` names the accept entries that matched nothing, so stale ones get removed.
 
@@ -255,9 +257,9 @@ It then launches with:
 
 - a single `--disable-features` switch holding Playwright's list plus `PaintHolding` and `MacAppCodeSignClone`
 - `--mute-audio`
-- a host-resolver rule that closes the world
+- the closed world: a proxy that refuses everything, bypassed only for the app and the allowed hosts; a host-resolver rule that lets no other name resolve; and WebRTC held to proxied connections, which that proxy refuses
 
-After launch, ra reads `Browser.getBrowserCommandLine` and refuses to continue unless the running browser matches. Every run ends with a receipt line. `ra doctor` shows the same receipt without looking at anything.
+After launch, ra reads `Browser.getBrowserCommandLine` and refuses to continue unless the running browser has every one of these. Every run ends with a receipt line. `ra doctor` shows the same receipt and tries the closed world: a throwaway app must answer, while another port on this machine, an IP address, an outside host and a WebRTC connection must each be stopped.
 
 ra runs on macOS and Linux and is tested with playwright-core 1.58 through 1.65.
 
@@ -266,7 +268,8 @@ ra runs on macOS and Linux and is tested with playwright-core 1.58 through 1.65.
 `defineConfig` is all most projects need. Scripts that drive a browser themselves can also use:
 
 - `openBrowser`: the launch policy and its receipt
-- `closeWorld`: the closed world, applied to any `BrowserContext`
+- `closeWorld`: the closed world's routing, applied to any `BrowserContext`. Launch with `openBrowser({ args: closedWorldSwitches(origin, reachableHosts(worlds)) })` so that what routing never sees is stopped too.
+- `ruleProblem`: what is wrong with a rule, in words, or `null`
 - `observe` and `inspectPage`: a look
 - `compareLooks`: a diff
 

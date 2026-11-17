@@ -193,8 +193,11 @@ export function planLaunch(defaults: readonly string[], extra: readonly string[]
   };
 }
 
-/** Says what is wrong with a running browser's command line. Empty when it follows the policy. */
-export function checkCommandLine(argv: readonly string[], executable: string, features: readonly string[]): string[] {
+/**
+ * Says what is wrong with a running browser's command line. Empty when it
+ * follows the policy and carries every switch in `expected`.
+ */
+export function checkCommandLine(argv: readonly string[], executable: string, features: readonly string[], expected: readonly string[] = []): string[] {
   const problems: string[] = [];
   const running = argv[0];
   let resolved = running;
@@ -213,6 +216,8 @@ export function checkCommandLine(argv: readonly string[], executable: string, fe
     if (missing.length > 0) problems.push(`--disable-features is missing ${[...new Set(missing)].join(", ")}.`);
   }
   if (!argv.includes("--mute-audio")) problems.push("The browser is not muted.");
+  const absent = expected.filter((arg) => !arg.startsWith(FEATURES) && !argv.includes(arg));
+  if (absent.length > 0) problems.push(`The browser is running without ${absent.join(" ")}.`);
   return problems;
 }
 
@@ -241,6 +246,7 @@ export async function defaultArguments(playwright: Playwright, options: { fresh?
       const browser = await playwright.chromium.launch({
         executablePath: script,
         headless: true,
+        ...OWN_SIGNALS,
         timeout: 10_000,
         env: { ...(process.env as Record<string, string>), RA_ARGUMENTS: output },
       });
@@ -262,6 +268,13 @@ export async function defaultArguments(playwright: Playwright, options: { fresh?
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+/**
+ * Playwright would otherwise close its browsers and exit on Ctrl-C by itself,
+ * before ra has stopped the app. ra handles these signals and closes
+ * everything in order.
+ */
+const OWN_SIGNALS = { handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false } as const;
 
 async function commandLine(browser: Browser): Promise<string[]> {
   const session = await browser.newBrowserCDPSession();
@@ -285,13 +298,14 @@ export async function openBrowser(options: OpenBrowserOptions = {}): Promise<Own
     const browser = await playwright.chromium.launch({
       executablePath: executable,
       headless: true,
+      ...OWN_SIGNALS,
       ignoreDefaultArgs: plan.ignore,
       args: plan.args,
       ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
     });
     try {
       const argv = await commandLine(browser);
-      problems = checkCommandLine(argv, executable, plan.features);
+      problems = checkCommandLine(argv, executable, plan.features, options.args);
       if (problems.length === 0) {
         const names = argv.find((arg) => arg.startsWith(FEATURES))!.slice(FEATURES.length).split(",");
         let closed: Promise<void> | undefined;

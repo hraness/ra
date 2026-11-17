@@ -15,7 +15,8 @@ import { compareLooks, type Change } from "./diff.ts";
 import type { Observation } from "./observe.ts";
 import { decodePng, encodePng, frame } from "./png.ts";
 import { checkText, diffText, looksText, receiptLine, statesText } from "./report.ts";
-import { openSession, workDirectory, type Job, type Session } from "./run.ts";
+import { closeSessions, openSession, workDirectory, type Job, type Session } from "./run.ts";
+import { closedWorldSwitches, closedWorldTrial, ruleProblem } from "./world.ts";
 
 const HELP = `ra — look at an app's interface the way a person would, and say what is wrong with it.
 
@@ -64,20 +65,20 @@ function version(): string {
   return (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
 }
 
-let active: Session | undefined;
-
 async function withSession<T>(project: Project, flags: Flags, extra: { url?: string; states?: State[] }, run: (session: Session) => Promise<T>): Promise<T> {
   const url = extra.url ?? flags.url;
+  for (const rule of flags.allow ?? []) {
+    const problem = ruleProblem(rule);
+    if (problem !== null) throw new UsageError(`--allow ${rule}: ${problem}.`);
+  }
   const session = await openSession(project, {
     ...(url === undefined ? {} : { url }),
     ...(flags.allow === undefined ? {} : { allow: flags.allow }),
     ...(extra.states === undefined ? {} : { states: extra.states }),
   });
-  active = session;
   try {
     return await run(session);
   } finally {
-    active = undefined;
     await session.close();
   }
 }
@@ -133,6 +134,11 @@ async function look(project: Project, flags: Flags, names: string[]): Promise<nu
   const then = code(flags.then);
   const jobs: Job[] = views(project, state, flags.at, "first").map((view) => ({ state, view }));
   return withSession(project, flags, { ...(url === undefined ? {} : { url }), states: [state] }, async (session) => {
+    if (session.live && state.local) {
+      throw new UsageError(
+        `State "${state.name}" brings its own world or steps, which ra does not use against a deployment. Look at it on this machine, or mark it live: true if it is safe to run against ${session.origin}.`,
+      );
+    }
     const observations = await session.lookAll(jobs, {
       directory: workDirectory(project, "look"),
       lines: flags.full === true ? Infinity : 60,
@@ -266,22 +272,35 @@ async function doctor(project: Project, flags: Flags): Promise<number> {
   const lines = [`ra ${version()} — node ${process.versions.node} — ${process.platform} ${process.arch}`];
   lines.push(project.file === null ? "config: none found from here (ra can still look at any address)" : `config: ${project.file} (${project.states.length} states)`);
   let receipt: Awaited<ReturnType<typeof openBrowser>>["receipt"] | undefined;
+  let closedWorld: boolean | null = null;
   let problem: string | undefined;
   try {
     const playwright = loadPlaywright(project.root);
     lines.push(`playwright-core: ${playwright.version} at ${playwright.root}`);
-    const owned = await openBrowser({ from: project.root });
-    receipt = owned.receipt;
-    await owned.close();
+    const trial = await closedWorldTrial();
+    let leaks: string[];
+    try {
+      const owned = await openBrowser({ from: project.root, args: closedWorldSwitches(trial.origin, []) });
+      receipt = owned.receipt;
+      try {
+        leaks = await trial.run(owned.browser);
+      } finally {
+        await owned.close();
+      }
+    } finally {
+      await trial.close();
+    }
     lines.push(`browser: Chromium ${receipt.version}, headless, started and closed cleanly`);
     lines.push(`executable: ${receipt.executable}`);
     lines.push(`policy: audio muted; one --disable-features switch holding ${receipt.disabledFeatures.join(", ")}`);
-    lines.push("closed world: outside hosts do not resolve unless a world allows them");
+    closedWorld = leaks.length === 0;
+    if (!closedWorld) throw new Error(`The closed world did not hold in this browser: ${leaks.join("; ")}.`);
+    lines.push("closed world: held; the browser reached a throwaway app, was stopped going to another port on this machine, an IP address and an outside host, and WebRTC sent nothing");
   } catch (error) {
     problem = error instanceof Error ? error.message : String(error);
     lines.push(`problem: ${problem}`);
   }
-  if (flags.json === true) print(JSON.stringify({ ok: problem === undefined, version: version(), node: process.versions.node, config: project.file, receipt: receipt ?? null, problem: problem ?? null }, null, 2));
+  if (flags.json === true) print(JSON.stringify({ ok: problem === undefined, version: version(), node: process.versions.node, config: project.file, receipt: receipt ?? null, closedWorld, problem: problem ?? null }, null, 2));
   else print(lines.join("\n"));
   return problem === undefined ? 0 : 3;
 }
@@ -339,9 +358,17 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.once(signal, () => {
-    void (active?.close() ?? Promise.resolve()).finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
+// On an interrupt, close the browser and stop the app before exiting. A
+// second interrupt, or ten seconds, ends ra at once; the app's keeper still
+// stops the app when ra is gone.
+let interrupted = false;
+for (const [signal, status] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]] as const) {
+  process.on(signal, () => {
+    if (interrupted) process.exit(status);
+    interrupted = true;
+    process.exitCode = status;
+    setTimeout(() => process.exit(status), 10_000).unref();
+    void closeSessions().finally(() => process.exit(status));
   });
 }
 
@@ -353,9 +380,11 @@ if (process.versions.bun !== undefined) {
 
 main(process.argv.slice(2)).then(
   (status) => {
-    process.exitCode = status;
+    if (!interrupted) process.exitCode = status;
   },
   (error: unknown) => {
+    // An interrupted run fails as its browser closes; that is not worth a message.
+    if (interrupted) return;
     const usage = error instanceof UsageError || error instanceof ConfigError;
     const known = usage || error instanceof AppError || error instanceof BrowserPolicyError;
     process.stderr.write(`ra: ${known ? (error as Error).message : error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);

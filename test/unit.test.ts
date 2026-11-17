@@ -2,10 +2,13 @@
  * Everything that can be checked without a browser.
  */
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { after, describe, test } from "node:test";
+import { serveStatic, startApp } from "../src/app.ts";
 import { checkCommandLine, planLaunch, rejectInstalledChrome, resolveExecutable } from "../src/browser.ts";
 import { ConfigError, mergeWorlds, readConfig, resolveView } from "../src/config.ts";
 import { contrastRatio, findLowContrast, neededRatio } from "../src/contrast.ts";
@@ -15,7 +18,7 @@ import { applyAccepts, type Finding, type Observation } from "../src/observe.ts"
 import { outlineOf } from "../src/outline.ts";
 import { comparePixels, decodePng, encodePng, frame, type Image } from "../src/png.ts";
 import { checkText } from "../src/report.ts";
-import { findReply, judge, reachableHosts, resolverSwitch, sameApp } from "../src/world.ts";
+import { closedWorldSwitches, findReply, judge, reachableHosts, resolverSwitch, sameApp, startUpstreams } from "../src/world.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "ra-unit-"));
 after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -47,6 +50,8 @@ describe("browser launch policy", () => {
     assert.match(checkCommandLine([executable, "--disable-features=X", "--disable-features=PaintHolding", "--mute-audio"], executable, []).join(" "), /one --disable-features switch and found 2/u);
     assert.match(checkCommandLine([executable, "--disable-features=PaintHolding"], executable, []).join(" "), /MacAppCodeSignClone.*not muted/su);
     assert.match(checkCommandLine(["/bin/sh", ...good.slice(1)], executable, []).join(" "), /not the resolved/u);
+    assert.deepEqual(checkCommandLine([...good, "--proxy-server=http://127.0.0.1:1"], executable, [], ["--proxy-server=http://127.0.0.1:1"]), []);
+    assert.deepEqual(checkCommandLine(good, executable, [], ["--proxy-server=http://127.0.0.1:1"]), ["The browser is running without --proxy-server=http://127.0.0.1:1."]);
   });
 
   test("refuses the installed Google Chrome on every platform", () => {
@@ -114,6 +119,32 @@ describe("views and config", () => {
     assert.ok("GET /api/inbox" in byName.empty!.world.replies);
   });
 
+  test("refuses a rule or an answer it cannot use when the config loads, and says how to write it", () => {
+    const load = (world: object) => () => readConfig({ world, states: { home: "/" } } as never, scratch);
+    assert.throws(load({ replies: { "get /api/me": { json: {} } } }), /^ConfigError: world\.replies: "get \/api\/me" needs its method in capitals, as in "GET \/api\/me"\.$/u);
+    assert.throws(load({ replies: { "GET api/me": { json: {} } } }), /reads as a host named "api"; a path on the app starts with "\/", as in "GET \/api\/me"/u);
+    assert.throws(load({ replies: { "GET /a /b": { json: {} } } }), /more in it than a method and an address/u);
+    assert.throws(load({ replies: { "/api/me": { jsn: {} } } }), /the answer for "\/api\/me" has an unknown setting "jsn"; the settings are status, json, body, type, headers/u);
+    assert.throws(load({ replies: { "/api/me": { status: 99 } } }), /has status 99, which is not a number from 100 to 599/u);
+    assert.throws(load({ replies: { "/api/me": { json: {}, body: "x" } } }), /both json and body/u);
+    assert.throws(load({ block: ["post /beacon"] }), /world\.block: "post \/beacon" needs its method in capitals/u);
+    assert.throws(load({ allow: ["https:/fonts.example.com"] }), /world\.allow: "https:\/fonts\.example\.com" names no host ra can read; write a host such as "api\.example\.com"/u);
+    assert.throws(load({ upstreams: { content: { "https://cms.example.com/articles": { json: [] } } } }), /world\.upstreams\.content: "https:\/\/cms\.example\.com\/articles" is not a path/u);
+    assert.throws(load({ upstreams: { "my content": {} } }), /cannot be used as \{upstream\.my content\}/u);
+    assert.throws(
+      () => readConfig({ states: { home: { url: "/", world: { replies: { "get /x": { json: 1 } } } } } }, scratch),
+      /State "home" world\.replies: "get \/x" needs its method in capitals/u,
+    );
+    assert.doesNotThrow(
+      load({
+        replies: { "GET /api/me": () => ({ json: {} }), "https://api.example.com/**": { body: new Uint8Array([1]), type: "image/png" }, "*.cdn.example": { status: 204 } },
+        allow: ["localhost:8080/**", "fonts.gstatic.com", "*"],
+        block: ["/ph/**", "POST https://*.tracker.example/**"],
+        upstreams: { content: { "GET /articles": { json: [] } } },
+      }),
+    );
+  });
+
   test("lays one world over another", () => {
     const merged = mergeWorlds({ allow: ["a.example"], replies: { "/x": { json: 1 } } }, { allow: ["b.example"], replies: { "/x": { json: 2 } } });
     assert.deepEqual(merged.allow, ["a.example", "b.example"]);
@@ -152,6 +183,49 @@ describe("the closed world", () => {
     assert.ok(!sameApp(new URL("https://127.0.0.1:4000/"), origin));
   });
 
+  test("against a deployment, lets the deployment answer for itself, and still applies blocks to it", () => {
+    const live = "https://www.example.com";
+    const world = { replies: { "/api/me": { json: {} }, "https://*.example.com/**": { json: [] } }, block: ["/ph/**"] };
+    const on = (address: string, method = "GET") => judge(world, live, method, new URL(address), { live: true });
+    assert.equal(on("https://www.example.com/api/me"), "app");
+    assert.equal(on("https://www.example.com/anything"), "app", "a host rule that names the deployment does not stand in for it");
+    assert.equal(on("https://api.example.com/v1"), "replied", "the same rule still answers for other hosts");
+    assert.equal(on("https://www.example.com/ph/e", "POST"), "blocked");
+    assert.equal(judge(world, live, "GET", new URL("https://www.example.com/api/me")), "replied", "on this machine, a reply comes first");
+  });
+
+  test("sends what routing never sees to a proxy that refuses it, except the app and the allowed hosts", () => {
+    const hosts = reachableHosts([{ allow: ["https://fonts.example.com/**", "/local/path", "GET *.cdn.example", "localhost:8080/api/**"] }])!;
+    assert.deepEqual(hosts, ["fonts.example.com", "*.cdn.example", "localhost:8080"]);
+    assert.deepEqual(closedWorldSwitches("http://127.0.0.1:4000", hosts), [
+      "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE *.localhost , EXCLUDE 127.0.0.1 , EXCLUDE fonts.example.com , EXCLUDE *.cdn.example",
+      "--proxy-server=http://127.0.0.1:1",
+      "--proxy-bypass-list=<-loopback>;127.0.0.1:4000;localhost:4000;[::1]:4000;0.0.0.0:4000;fonts.example.com;*.cdn.example;localhost:8080",
+      "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+    ]);
+    const deployment = closedWorldSwitches("https://www.example.com", []);
+    assert.match(deployment[0]!, /EXCLUDE www\.example\.com$/u);
+    assert.equal(deployment[2], "--proxy-bypass-list=<-loopback>;www.example.com");
+  });
+
+  test("a stand-in answers with text or bytes, and says when a reply gives no answer", async () => {
+    const upstreams = await startUpstreams(["api"]);
+    try {
+      upstreams.use({ upstreams: { api: { "GET /bad": () => ({ jsn: 1 }) as never, "GET /bytes": { body: new Uint8Array([104, 105]) } } } });
+      const bad = await fetch(`${upstreams.urls.api}/bad`);
+      assert.equal(bad.status, 500);
+      assert.match(await bad.text(), /The world's reply for GET \/bad gave an answer that has an unknown setting "jsn"/u);
+      const bytes = await fetch(`${upstreams.urls.api}/bytes`);
+      assert.equal(await bytes.text(), "hi");
+      assert.equal(bytes.headers.get("content-type"), "application/octet-stream");
+      const none = await fetch(`${upstreams.urls.api}/none`);
+      assert.equal(none.status, 501);
+      assert.deepEqual(upstreams.drain().map((call) => call.outcome), ["replied", "replied", "unexpected"]);
+    } finally {
+      await upstreams.close();
+    }
+  });
+
   test("lets only loopback and allowed hosts resolve", () => {
     assert.deepEqual(reachableHosts([{ allow: ["https://fonts.example.com/**", "/local/path", "GET *.cdn.example"] }]), ["fonts.example.com", "*.cdn.example"]);
     assert.equal(reachableHosts([{ allow: ["*"] }]), null, "a world that allows everything turns the backstop off");
@@ -159,6 +233,101 @@ describe("the closed world", () => {
       resolverSwitch(["app.example.com"]),
       "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE localhost , EXCLUDE *.localhost , EXCLUDE 127.0.0.1 , EXCLUDE app.example.com",
     );
+  });
+});
+
+describe("the app", () => {
+  const appModule = fileURLToPath(new URL("../src/app.ts", import.meta.url));
+  const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const until = async (done: () => boolean, ms: number, what: string) => {
+    const deadline = Date.now() + ms;
+    while (!done()) {
+      if (Date.now() > deadline) assert.fail(what);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+  /** A command that leaves a process in the background, writes its pid down, then serves on PORT. */
+  const serving = (pids: string) =>
+    `sleep 300 & echo $! > ${pids}; exec node -e "require('node:http').createServer((q, s) => s.end('ok')).listen(process.env.PORT, '127.0.0.1')"`;
+
+  test("stops everything its command started, background jobs included", async () => {
+    const pids = join(scratch, "pids-stop");
+    const app = await startApp({ command: serving(pids), timeout: 30 }, { root: scratch });
+    assert.equal(await (await fetch(app.origin)).text(), "ok");
+    const sleeper = Number(readFileSync(pids, "utf8"));
+    assert.ok(alive(sleeper));
+    await app.stop();
+    await until(() => !alive(sleeper), 2000, "the background job outlived the app");
+    await app.stop();
+  });
+
+  test("leaves nothing behind when the command exits before the app answers", async () => {
+    const pids = join(scratch, "pids-exit");
+    await assert.rejects(startApp({ command: `sleep 300 & echo $! > ${pids}; echo giving up; exit 3`, timeout: 30 }, { root: scratch }), /The app stopped before it answered .*giving up/su);
+    await until(() => !alive(Number(readFileSync(pids, "utf8"))), 2000, "the background job outlived the command");
+  });
+
+  test("is stopped when ra is killed outright", async () => {
+    const pids = join(scratch, "pids-killed");
+    const host = join(scratch, "host.mts");
+    writeFileSync(
+      host,
+      `import { startApp } from ${JSON.stringify(appModule)};
+await startApp({ command: ${JSON.stringify(serving(pids))}, timeout: 30 }, { root: ${JSON.stringify(scratch)} });
+process.stdout.write("ready\\n");
+setInterval(() => undefined, 1000);
+`,
+    );
+    const child = spawn(process.execPath, [host], { stdio: ["ignore", "pipe", "inherit"] });
+    await new Promise<void>((resolve, reject) => {
+      child.stdout.on("data", (chunk: Buffer) => chunk.toString().includes("ready") && resolve());
+      child.once("exit", (code) => reject(new Error(`the stand-in for ra exited with ${code}`)));
+    });
+    const sleeper = Number(readFileSync(pids, "utf8"));
+    child.kill("SIGKILL");
+    await until(() => !alive(sleeper), 5000, "the app outlived a killed ra");
+  });
+
+  test("is stopped when ra is interrupted while the app is still starting", async () => {
+    const project = mkdtempSync(join(scratch, "interrupted-"));
+    const pids = join(project, "pids");
+    writeFileSync(join(project, "ra.config.ts"), `export default { app: { command: ${JSON.stringify(`sleep 300 & echo $! > ${pids}; sleep 300`)}, timeout: 60 }, states: { home: "/" } };\n`);
+    const child = spawn(process.execPath, [cli, "check"], { cwd: project, stdio: ["ignore", "pipe", "pipe"] });
+    let err = "";
+    child.stderr.on("data", (chunk: Buffer) => (err += chunk.toString()));
+    const exited = new Promise<number | null>((resolve) => child.once("exit", (code) => resolve(code)));
+    await until(() => existsSync(pids) && readFileSync(pids, "utf8").trim() !== "", 10_000, "the app never started");
+    const sleeper = Number(readFileSync(pids, "utf8"));
+    child.kill("SIGINT");
+    assert.equal(await exited, 130);
+    assert.equal(err, "", "an interrupt is not an error");
+    await until(() => !alive(sleeper), 5000, "the app outlived an interrupted ra");
+  });
+
+  test("a static file that cannot be read fails that response, and the server keeps going", async (t) => {
+    if (process.getuid?.() === 0) {
+      t.skip("root can read any file");
+      return;
+    }
+    const root = mkdtempSync(join(scratch, "static-"));
+    writeFileSync(join(root, "index.html"), "ok");
+    writeFileSync(join(root, "locked.html"), "no");
+    chmodSync(join(root, "locked.html"), 0o000);
+    const app = await serveStatic(root);
+    try {
+      await assert.rejects(fetch(`${app.origin}/locked`).then((response) => response.text()));
+      assert.equal(await (await fetch(`${app.origin}/`)).text(), "ok");
+    } finally {
+      await app.stop();
+    }
   });
 });
 

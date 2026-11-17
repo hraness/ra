@@ -6,6 +6,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,6 +110,16 @@ describe("ra check on the fixture site", () => {
     assert.ok(!leave.url.includes("example.com") || leave.findings.some((finding) => finding.kind === "load"));
     assert.deepEqual(kinds(looks, "leave", "desktop"), ["load", "outside"]);
     assert.ok(!leave.title.includes("Example Domain"), "example.com was reached");
+    const outside = leave.findings.find((finding) => finding.kind === "outside")!;
+    assert.match(outside.message, /^A redirect from \/leave tried to take the page to https:\/\/example\.com\/, which is not in its world, and was stopped\./u);
+    assert.match(leave.findings.find((finding) => finding.kind === "load")!.message, /sent outside its world/u);
+  });
+
+  test("stops redirect hops that routing never sees, blocks them quietly, and says when a reply could not answer one", () => {
+    assert.deepEqual(kinds(looks, "detours", "desktop"), ["request"]);
+    const detours = looks.find((look) => look.state === "detours")!;
+    assert.match(detours.findings[0]!.message, /GET https:\/\/cdn\.example\.test\/avatar\.json has a reply, but the page reached it through a redirect from \/avatar.*Give \/avatar the reply instead/u);
+    assert.equal(detours.requests.blocked, 1, "the hop to the blocked tracker");
   });
 
   test("runs the provisioned browser the way the policy requires", () => {
@@ -154,7 +166,57 @@ describe("ra look", () => {
   test("says how to name a state that does not exist, and exits 2", async () => {
     const ran = await ra(["look", "nowhere"]);
     assert.equal(ran.status, 2);
-    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, broken, untitled, outage, faulty, leave/u);
+    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, broken, untitled, outage, faulty, leave, detours/u);
+  });
+});
+
+describe("the closed world", () => {
+  test("stops a redirect to another port on this machine, and owns up to one that slips through an allowed host", async () => {
+    const seen: string[] = [];
+    const other = createServer((request, response) => {
+      seen.push(request.url ?? "/");
+      response
+        .writeHead(200, { "content-type": "text/html; charset=utf-8" })
+        .end('<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Other</title></head><body><main><h1>Reached</h1></main></body></html>');
+    });
+    await new Promise<void>((done) => other.listen(0, "127.0.0.1", done));
+    const port = (other.address() as AddressInfo).port;
+    try {
+      const copy = copySite();
+      writeFileSync(
+        join(copy, "ra.config.ts"),
+        `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({
+  app: { static: "." },
+  views: ["desktop"],
+  states: {
+    escape: { url: "/escape", world: { replies: { "GET /escape": { status: 302, headers: { location: "http://127.0.0.1:${port}/escaped" } } } } },
+    slip: {
+      url: "/slip",
+      world: { replies: { "GET /slip": { status: 302, headers: { location: "http://localhost:${port}/secret" } } }, allow: ["localhost:${port}/ok/**"] },
+    },
+  },
+});
+`,
+      );
+      const ran = await ra(["check", "--json"], copy);
+      assert.equal(ran.status, 1, ran.err);
+      const found = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+      assert.deepEqual(kinds(found, "escape", "desktop"), ["load", "outside"]);
+      const escape = found.find((look) => look.state === "escape")!;
+      assert.match(escape.findings.find((finding) => finding.kind === "outside")!.message, /^A redirect from \/escape tried to take the page to http:\/\/127\.0\.0\.1:\d+\/escaped, which is not in its world, and was stopped/u);
+      assert.deepEqual(kinds(found, "slip", "desktop"), ["outside"]);
+      const slip = found.find((look) => look.state === "slip")!;
+      assert.match(slip.findings[0]!.message, /^A redirect from \/slip took the page to http:\/\/localhost:\d+\/secret, which its world does not allow, and the request went through, because localhost:\d+ is allowed/u);
+      assert.deepEqual(
+        seen.filter((path) => path !== "/favicon.ico"),
+        ["/secret"],
+        "only the hop the finding owns up to reached the other server",
+      );
+    } finally {
+      other.closeAllConnections();
+      other.close();
+    }
   });
 });
 
@@ -179,8 +241,9 @@ describe("ra doctor", () => {
   test("starts and closes the browser", async () => {
     const ran = await ra(["doctor", "--json"]);
     assert.equal(ran.status, 0, ran.err);
-    const report = JSON.parse(ran.out) as { ok: boolean; receipt: { version: string } };
+    const report = JSON.parse(ran.out) as { ok: boolean; receipt: { version: string }; closedWorld: boolean | null };
     assert.equal(report.ok, true);
     assert.match(report.receipt.version, /^\d+\./u);
+    assert.equal(report.closedWorld, true, "the trial reached the app and nothing else");
   });
 });

@@ -35,5 +35,21 @@ export default defineConfig({
       views: ["desktop"],
       world: { replies: { "GET /leave": { status: 302, headers: { location: "https://example.com/" } } } },
     },
+    // The browser follows redirects by itself, so routing never sees where
+    // they lead. The world still stops each hop, and ra says which rule
+    // could not apply: the block holds quietly, the reply cannot answer.
+    detours: {
+      url: "/detours",
+      views: ["desktop"],
+      world: {
+        replies: {
+          "POST /track": { status: 307, headers: { location: "https://track.example.test/t" } },
+          "GET /avatar": { status: 302, headers: { location: "https://cdn.example.test/avatar.json" } },
+          "https://cdn.example.test/**": { json: {} },
+        },
+        block: ["track.example.test"],
+      },
+      see: ["Done."],
+    },
   },
 });

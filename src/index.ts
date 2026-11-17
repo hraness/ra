@@ -25,13 +25,13 @@ export type {
 export { openBrowser, BrowserPolicyError, REQUIRED_DISABLED_FEATURES } from "./browser.ts";
 export type { BrowserReceipt, OpenBrowserOptions, OwnedBrowser } from "./browser.ts";
 
-export { closeWorld, judge, resolverSwitch, startUpstreams } from "./world.ts";
-export type { Upstreams, Verdict, WorldOptions } from "./world.ts";
+export { closeWorld, closedWorldSwitches, judge, reachableHosts, ruleProblem, startUpstreams } from "./world.ts";
+export type { JudgeOptions, Upstreams, Verdict, WorldOptions } from "./world.ts";
 
 export { startApp, serveStatic, AppError } from "./app.ts";
 export type { RunningApp } from "./app.ts";
 
-export { openSession } from "./run.ts";
+export { closeSessions, openSession } from "./run.ts";
 export type { Job, LookOptions, Session, SessionOptions } from "./run.ts";
 
 export { observe } from "./observe.ts";

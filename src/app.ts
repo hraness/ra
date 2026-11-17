@@ -106,7 +106,7 @@ export async function serveStatic(directory: string): Promise<RunningApp> {
       "cache-control": "no-store",
     });
     if (request.method === "HEAD") response.end();
-    else createReadStream(send).pipe(response);
+    else createReadStream(send).on("error", () => response.destroy()).pipe(response);
   });
   await new Promise<void>((done, fail) => {
     server.once("error", fail);
@@ -122,6 +122,60 @@ export async function serveStatic(directory: string): Promise<RunningApp> {
       }),
   };
 }
+
+/** How long the app's processes get to stop after SIGTERM before SIGKILL. */
+const GRACE_MS = 8000;
+
+/**
+ * Runs in a Node process of its own between ra and the app's command. It
+ * starts the command in a new process group and ends that whole group, with
+ * SIGTERM and then SIGKILL, when its standard input closes. That happens when
+ * ra stops the app, and also when ra dies however it dies, because the system
+ * closes the pipe. When the command exits by itself, the rest of its group is
+ * ended too, so nothing it left in the background outlives it.
+ */
+const KEEPER = `
+const { spawn } = require("node:child_process");
+const env = { ...process.env };
+if (env.RA_APP_NODE_OPTIONS === undefined) delete env.NODE_OPTIONS;
+else env.NODE_OPTIONS = env.RA_APP_NODE_OPTIONS;
+delete env.RA_APP_NODE_OPTIONS;
+const child = spawn(process.argv[1], { shell: true, detached: true, env, stdio: ["ignore", "inherit", "inherit"] });
+let code = null;
+let ending = false;
+const group = (signal) => {
+  try {
+    process.kill(-child.pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+};
+const end = () => {
+  if (ending) return;
+  ending = true;
+  group("SIGTERM");
+  const since = Date.now();
+  const poll = setInterval(() => {
+    if (group(0) && Date.now() - since < ${GRACE_MS}) return;
+    group("SIGKILL");
+    clearInterval(poll);
+    process.exit(code ?? 0);
+  }, 50);
+};
+child.on("exit", (status) => {
+  code = status ?? 1;
+  end();
+});
+child.on("error", () => {
+  code = 127;
+  end();
+});
+process.stdin.on("end", end);
+process.stdin.on("error", end);
+process.stdin.resume();
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, end);
+`;
 
 export interface StartOptions {
   /** The project directory; commands run here and static paths start here. */
@@ -163,7 +217,10 @@ export async function startApp(spec: AppSpec | undefined, options: StartOptions)
   const env: Record<string, string | undefined> = { ...process.env, PORT: String(port) };
   for (const [key, value] of Object.entries(spec.env ?? {})) env[key] = fill(value);
   const command = fill(spec.command);
-  const child = spawn(command, { cwd: options.root, env, shell: true, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+  // The keeper is plain Node; the app's NODE_OPTIONS are kept for the app alone.
+  const keeperEnv: Record<string, string | undefined> = { ...env, NODE_OPTIONS: undefined, RA_APP_NODE_OPTIONS: env["NODE_OPTIONS"] };
+  const child = spawn(process.execPath, ["-e", KEEPER, command], { cwd: options.root, env: keeperEnv, detached: true, stdio: ["pipe", "pipe", "pipe"] });
+  child.stdin.on("error", () => undefined);
   let output = "";
   const keep = (chunk: Buffer) => {
     const text = chunk.toString("utf8");
@@ -184,26 +241,37 @@ export async function startApp(spec: AppSpec | undefined, options: StartOptions)
       done();
     });
   });
-  const stop = async () => {
-    if (exited !== undefined || child.pid === undefined) return;
-    const signal = (name: NodeJS.Signals) => {
-      try {
-        process.kill(-child.pid!, name);
-      } catch {
-        // Already gone.
+  let stopping: Promise<void> | undefined;
+  const stop = () => {
+    stopping ??= (async () => {
+      if (exited === undefined) {
+        // Closing its input tells the keeper to end the app's group and exit.
+        child.stdin.end();
+        const timer = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // Already gone.
+          }
+        }, GRACE_MS + 4000);
+        await gone;
+        clearTimeout(timer);
       }
-    };
-    signal("SIGTERM");
-    const timer = setTimeout(() => signal("SIGKILL"), 8000);
-    await gone;
-    clearTimeout(timer);
+      // Something that left the group may still hold the output open.
+      child.stdout.destroy();
+      child.stderr.destroy();
+    })();
+    return stopping;
   };
 
   const ready = spec.ready ?? "/";
   const deadline = Date.now() + (spec.timeout ?? 120) * 1000;
   const tail = () => (output.trim() === "" ? "It printed nothing." : `Its last output:\n${output.trim().split("\n").slice(-15).join("\n")}`);
   for (;;) {
-    if (exited !== undefined) throw new AppError(`The app stopped before it answered (${command}). ${tail()}`);
+    if (exited !== undefined) {
+      await stop();
+      throw new AppError(`The app stopped before it answered (${command}). ${tail()}`);
+    }
     for (const host of ["127.0.0.1", "localhost"]) {
       if (await answers(`http://${host}:${port}${ready}`)) return { origin: `http://${host}:${port}`, owned: true, stop };
     }

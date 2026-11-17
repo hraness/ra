@@ -153,8 +153,8 @@ Canvas, WebGL and terminal-like interfaces show little to the outline and the la
 ra check --url https://staging.example.com
 ```
 
-States that bring their own world or steps are skipped against a deployment. Mark one `live: true` if it is safe there.
+`ra check` skips states that bring their own world or steps, and `ra look` refuses them. Mark one `live: true` if it is safe there.
 
-Requests to the deployment itself go to the deployment, and any reply rules for its own paths are ignored. Outside hosts stay closed unless allowed.
+The deployment answers for itself: no reply rule stands in for it, though `block` still applies to its paths. Outside hosts stay closed unless allowed.
 
 This answers "does the deployment look right?". It does not answer "do the services behind it work?": that is what monitoring is for.

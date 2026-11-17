@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startApp, type RunningApp } from "./app.ts";
 import { openBrowser, type BrowserReceipt, type OwnedBrowser } from "./browser.ts";
-import type { Accept, Project, Replies, State, View } from "./config.ts";
+import type { Accept, Project, State, View } from "./config.ts";
 import { observe, type Observation } from "./observe.ts";
-import { reachableHosts, resolverSwitch, startUpstreams, type Upstreams } from "./world.ts";
+import { closedWorldSwitches, reachableHosts, startUpstreams, type Upstreams } from "./world.ts";
 
 export interface SessionOptions {
   /** Look at this running app or deployment instead of starting the configured one. */
@@ -58,9 +58,12 @@ export interface Session {
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
 
-function ownPaths(replies: Replies): Replies {
-  // Against a deployment the app answers for itself; only rules about other hosts stay.
-  return Object.fromEntries(Object.entries(replies).filter(([rule]) => !/^(?:[A-Z]+\s+)?\//u.test(rule.trim())));
+/** Every session that has started to open and is not closed yet. */
+const open = new Set<() => Promise<void>>();
+
+/** Closes every session still open, such as when ra is interrupted. */
+export async function closeSessions(): Promise<void> {
+  await Promise.allSettled([...open].map((close) => close()));
 }
 
 /**
@@ -94,9 +97,11 @@ export async function openSession(project: Project, options: SessionOptions = {}
       await owned?.close().catch(() => undefined);
       await app?.stop().catch(() => undefined);
       await upstreams?.close().catch(() => undefined);
+      open.delete(close);
     })();
     return closing;
   };
+  open.add(close);
 
   try {
     if (names.length > 0 && external) {
@@ -111,26 +116,15 @@ export async function openSession(project: Project, options: SessionOptions = {}
       ...(options.log === undefined ? {} : { log: options.log }),
     });
     const origin = app.origin;
-    const host = new URL(origin).hostname;
-    const live = !LOOPBACK.has(host);
+    const live = !LOOPBACK.has(new URL(origin).hostname);
     const extra = [...(options.allow ?? [])];
     const hosts = reachableHosts([...states.map((state) => state.world), { allow: extra }]);
     if (hosts === null) notes.push("This run lets every outside host through, so nothing stops a request that leaves the app.");
-    owned = await openBrowser({ from: project.root, args: hosts === null ? [] : [resolverSwitch([host, ...hosts])] });
+    owned = await openBrowser({ from: project.root, args: hosts === null ? [] : closedWorldSwitches(origin, hosts) });
     const browser = owned.browser;
     const accepted = new Set<Accept>();
 
-    const prepare = (state: State): State => {
-      if (!live && extra.length === 0) return state;
-      return {
-        ...state,
-        world: {
-          ...state.world,
-          replies: live ? ownPaths(state.world.replies) : state.world.replies,
-          allow: [...state.world.allow, ...extra],
-        },
-      };
-    };
+    const prepare = (state: State): State => (extra.length === 0 ? state : { ...state, world: { ...state.world, allow: [...state.world.allow, ...extra] } });
     const look = async (job: Job, lookOptions: LookOptions = {}): Promise<Observation> => {
       const state = prepare(job.state);
       upstreams?.use(state.world);
@@ -139,6 +133,7 @@ export async function openSession(project: Project, options: SessionOptions = {}
         browser,
         project,
         origin,
+        live,
         state,
         view: job.view,
         ...lookOptions,

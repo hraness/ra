@@ -150,24 +150,59 @@ jobs:
             echo "::error::$TARBALL does not match the tarball that was verified"
             exit 1
           fi
+
+          # Says whether the published release is immutable and carries exactly
+          # the verified tarball. GitHub records each asset's digest.
+          check_published() {
+            local state digest
+            state="$(gh release view "$GITHUB_REF_NAME" \
+              --json assets,isDraft,isImmutable,isPrerelease,tagName \
+              --jq '[.tagName, .isDraft, .isPrerelease, .isImmutable, (.assets | length), .assets[0].name] | @tsv')"
+            if [[ "$state" != "$GITHUB_REF_NAME"$'\tfalse\tfalse\ttrue\t1\t'"$TARBALL" ]]; then
+              echo "::error::Release $GITHUB_REF_NAME is not published and immutable with its one asset: $state"
+              return 1
+            fi
+            digest="$(gh api "repos/$GH_REPO/releases/tags/$GITHUB_REF_NAME" --jq '.assets[0].digest // ""')"
+            if [[ "$digest" != "sha256:$SHA256" ]]; then
+              echo "::error::GitHub reports '${digest}' for $TARBALL, but sha256:$SHA256 was verified"
+              return 1
+            fi
+          }
+
+          # A rerun after a published release only confirms it. A draft left
+          # by an earlier failed run is removed; the tag stays.
+          existing="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          if [[ "$existing" == "false" ]]; then
+            check_published
+            echo "$GITHUB_REF_NAME was already published with $TARBALL (sha256:$SHA256)"
+            exit 0
+          elif [[ "$existing" == "true" ]]; then
+            gh release delete "$GITHUB_REF_NAME" --yes
+          fi
+
+          # Upload to a draft and prove the uploaded bytes before publishing,
+          # since a published immutable release cannot be corrected.
+          published=false
+          remove_draft() {
+            if [[ "$published" != "true" ]] && [[ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)" == "true" ]]; then
+              gh release delete "$GITHUB_REF_NAME" --yes || true
+              echo "::error::Removed the unpublished draft of $GITHUB_REF_NAME"
+            fi
+          }
+          trap remove_draft EXIT
           gh release create "$GITHUB_REF_NAME" "$file" \
+            --draft \
             --verify-tag \
             --generate-notes \
-            --latest \
             --title "ra $GITHUB_REF_NAME"
-          release_state="$(gh release view "$GITHUB_REF_NAME" \
-            --json assets,isDraft,isImmutable,isPrerelease,tagName \
-            --jq '[.tagName, .isDraft, .isPrerelease, .isImmutable, (.assets | length), .assets[0].name] | @tsv')"
-          expected_state="$GITHUB_REF_NAME"$'\tfalse\tfalse\ttrue\t1\t'"$TARBALL"
-          if [[ "$release_state" != "$expected_state" ]]; then
-            echo "::error::Release $GITHUB_REF_NAME is not published and immutable with its one asset: $release_state"
+          uploaded="$RUNNER_TEMP/uploaded"
+          mkdir "$uploaded"
+          gh release download "$GITHUB_REF_NAME" --pattern "$TARBALL" --dir "$uploaded"
+          if [[ "$(ls "$uploaded")" != "$TARBALL" || "$(sha256sum "$uploaded/$TARBALL" | cut -d' ' -f1)" != "$SHA256" ]]; then
+            echo "::error::The draft's asset is not the tarball that was verified"
             exit 1
           fi
-          digest="$(gh api "repos/$GH_REPO/releases/tags/$GITHUB_REF_NAME" --jq '.assets[0].digest // ""')"
-          if [[ -z "$digest" ]]; then
-            echo "::warning::GitHub did not report a digest for $TARBALL"
-          elif [[ "$digest" != "sha256:$SHA256" ]]; then
-            echo "::error::GitHub reports $digest for $TARBALL, but sha256:$SHA256 was verified"
-            exit 1
-          fi
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          published=true
+          check_published
           echo "Published $GITHUB_REF_NAME with $TARBALL (sha256:$SHA256)"

@@ -10,7 +10,7 @@ import { findLowContrast } from "./contrast.ts";
 import { inspectPage, type Box, type InspectOptions, type Region } from "./inspect.ts";
 import { outlineOf } from "./outline.ts";
 import { decodePng } from "./png.ts";
-import { closeWorld, judge, sameApp } from "./world.ts";
+import { closeWorld, judge, sameApp, type Verdict } from "./world.ts";
 
 export interface Finding {
   /** What sort of problem this is, such as `cut-off` or `contrast`. */
@@ -61,6 +61,8 @@ export interface ObserveOptions {
   project: Project;
   /** Where the app answers. */
   origin: string;
+  /** The app is a deployment, which answers its own requests. */
+  live?: boolean;
   state: State;
   view: View;
   /** Where pictures are written. Without it, no pictures are kept. */
@@ -226,7 +228,16 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       );
     }
     const refused: string[] = [];
-    await closeWorld(context, { world: state.world, origin, calls, onReplyError: (message) => refused.push(message) });
+    const live = options.live === true;
+    const verdictOf = (request: Request): Verdict | null => {
+      try {
+        const url = new URL(request.url());
+        return url.protocol === "http:" || url.protocol === "https:" ? judge(state.world, origin, request.method(), url, { live }) : null;
+      } catch {
+        return null;
+      }
+    };
+    await closeWorld(context, { world: state.world, origin, live, calls, onReplyError: (message) => refused.push(message) });
     const page = await context.newPage();
     page.setDefaultNavigationTimeout(project.timeout);
     page.setDefaultTimeout(Math.min(project.timeout, 10_000));
@@ -235,10 +246,41 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     let lastActivity = performance.now();
     const consoleErrors = new Map<string, number>();
     let document: Request | null = null;
+    // The browser follows a redirect by itself, so routing never sees its
+    // later hops. The closed world's proxy stops a hop that leaves the app and
+    // its allowed hosts; each hop is judged here so that it can be reported.
+    const hops = new Map<Request, Verdict>();
+    const startOf = (request: Request): string => {
+      let first = request;
+      while (first.redirectedFrom() !== null) first = first.redirectedFrom()!;
+      return first.url();
+    };
+    const settleHop = (request: Request, reached: boolean): boolean => {
+      const verdict = hops.get(request);
+      if (verdict === undefined) return false;
+      hops.delete(request);
+      const via = startOf(request);
+      const from = brief(via, origin);
+      const call: Call = { from: "page", type: request.resourceType(), method: request.method(), url: request.url(), body: null, outcome: "unexpected", via };
+      if (verdict === "replied") {
+        refused.push(
+          `${request.method()} ${brief(request.url(), origin)} has a reply, but the page reached it through a redirect from ${from}, which the browser follows by itself, so ${reached ? "the real address answered" : "the request failed"}. Give ${from} the reply instead`,
+        );
+      } else if (verdict === "blocked" && !reached) {
+        calls.push({ ...call, outcome: "blocked" });
+      } else {
+        calls.push(reached ? { ...call, reached: true } : call);
+      }
+      return true;
+    };
     page.on("request", (request) => {
       observation.requests.total++;
       lastActivity = performance.now();
       if (!BACKGROUND.has(request.resourceType())) pending.add(request);
+      if (request.redirectedFrom() === null) return;
+      const verdict = verdictOf(request);
+      if (verdict === "allowed") calls.push({ from: "page", type: request.resourceType(), method: request.method(), url: request.url(), body: null, outcome: "allowed", via: startOf(request) });
+      else if (verdict !== null && verdict !== "app") hops.set(request, verdict);
     });
     page.on("requestfinished", (request) => {
       pending.delete(request);
@@ -247,30 +289,22 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     page.on("requestfailed", (request) => {
       pending.delete(request);
       lastActivity = performance.now();
+      if (settleHop(request, false)) return;
       const reason = request.failure()?.errorText ?? "";
       if (/ERR_ABORTED|ERR_BLOCKED_BY_CLIENT/u.test(reason)) return;
-      if (/ERR_NAME_NOT_RESOLVED/u.test(reason)) {
-        // Routing never saw this one (a later hop of a redirect, say); the browser could not resolve the host.
-        try {
-          if (judge(state.world, origin, request.method(), new URL(request.url())) === "unexpected") {
-            calls.push({ from: "page", type: request.resourceType(), method: request.method(), url: request.url(), body: null, outcome: "unexpected" });
-            return;
-          }
-        } catch {
-          // Not an address; reported below as it is.
-        }
+      if (/ERR_NAME_NOT_RESOLVED|ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(reason) && verdictOf(request) === "unexpected") {
+        // Routing never saw this one, and the closed world stopped it.
+        calls.push({ from: "page", type: request.resourceType(), method: request.method(), url: request.url(), body: null, outcome: "unexpected" });
+        return;
       }
       refused.push(`${request.method()} ${brief(request.url(), origin)} failed (${reason.replace(/^net::/u, "")})`);
     });
     page.on("response", (response) => {
       const request = response.request();
+      settleHop(request, true);
       if (request === document || response.status() < 400) return;
       // An error the world was told to give is the state, not a problem.
-      try {
-        if (judge(state.world, origin, request.method(), new URL(response.url())) === "replied") return;
-      } catch {
-        // Not an address; reported as it is.
-      }
+      if (verdictOf(request) === "replied" && request.redirectedFrom() === null) return;
       refused.push(`${request.method()} ${brief(response.url(), origin)} answered ${response.status()}`);
     });
     page.on("console", (message) => {
@@ -313,7 +347,13 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       observation.status = response?.status() ?? null;
       loaded = true;
     } catch (error) {
-      add("load", `The page did not load: ${firstLine(error).replace(/^page\.goto: /u, "")}`);
+      const reason = firstLine(error).replace(/^page\.goto: /u, "");
+      add(
+        "load",
+        /ERR_NAME_NOT_RESOLVED|ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(reason)
+          ? `The page did not load, because it was sent outside its world (${reason}). The outside finding says where.`
+          : `The page did not load: ${reason}`,
+      );
     }
 
     if (loaded) {
@@ -450,6 +490,16 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       const more = list.length > 1 ? `, and ${list.length - 1} more from there` : "";
       if (first.from !== "page") {
         add("outside", `The app's server asked its "${key.replace("upstream:", "")}" upstream for ${first.method} ${first.url}${more}; this world has no reply for it.`);
+      } else if (first.via !== undefined && first.reached === true) {
+        add(
+          "outside",
+          `A redirect from ${brief(first.via, origin)} took the page to ${brief(first.url, origin)}${more}, which its world does not allow, and the request went through, because ${key} is allowed and ra can stop a redirect only by its host. Give ${brief(first.via, origin)} a reply that does not redirect there, or allow that address too.`,
+        );
+      } else if (first.via !== undefined) {
+        add(
+          "outside",
+          `A redirect from ${brief(first.via, origin)} tried to take the page to ${brief(first.url, origin)}${more}, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for ${key} cannot answer it. Give ${brief(first.via, origin)} a reply that does not redirect there, or list ${key} under block to stop it quietly, or under allow to let it through.`,
+        );
       } else if (first.type === "document") {
         add("outside", `The page tried to leave for ${brief(first.url, origin)}, which is not in its world. Give ${key} a reply, or list it under allow or block.`);
       } else {

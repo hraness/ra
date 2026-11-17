@@ -75,6 +75,7 @@ Prefer a named state in `ra.config.ts`, so the next look is one command:
 
 - Name states after visual risks: typical, empty, overflowing, failed. Do not name one for every route.
 - Every request the page makes needs a reply, an `allow` or a `block`. An `outside` finding names the host that is missing one.
+- A reply cannot answer where a redirect leads, because the browser follows redirects without asking. When an `outside` finding says a redirect was stopped, give the address that redirected a reply.
 - An error status that the world is told to give is the state itself. ra reports how the page handles it, not the error.
 - For calls made by the app's server, use `upstreams` and pass `{upstream.NAME}` to the app in `app.env`.
 - `storage`, `cookies` and `clock` set up the rest. `steps(page)` clicks through to a state after the page loads.

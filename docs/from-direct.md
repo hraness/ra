@@ -33,10 +33,10 @@ ra keeps all five.
 | `window.__direct` readiness probe | ra waits for the page to go quiet, plus an optional `ready` selector. |
 | A verifier per consumer | Built-in findings: layout, contrast measured from pixels, covered and small targets, names, images, console, requests, the world. |
 | Coverage claims and evidence archives | Sentences, an outline, a layout sketch and picture paths. `--json` when a tool wants data. |
-| A fetch firewall inside the page | Context-level routing, plus a host-resolver rule that catches what routing never sees. It also holds against deployments. |
+| A fetch firewall inside the page | Context-level routing. Beneath it, a proxy that refuses whatever routing never sees, such as redirect hops, IP addresses and WebRTC, and `ra doctor` to prove it holds. It also holds against deployments. |
 | Any browser tool | One provisioned Chromium, launched one way, verified over CDP, with a receipt. |
 
-ra is about 4,500 lines.
+ra is about 5,000 lines.
 
 ## What ra gives up
 

@@ -91,15 +91,17 @@ The console logged an error, or an exception went uncaught. Repeats are counted.
 
 ### `request`
 
-A request failed or answered 4xx/5xx. An error the world was told to give is the state you asked for, not a finding. A reply function that throws is one, since the world itself is broken; the page gets a 500 and the message carries the error.
+A request failed or answered 4xx/5xx. An error the world was told to give is the state you asked for, not a finding. A reply function that throws is one, since the world itself is broken; the page gets a 500 and the message carries the error. So is a reply for an address that the page reaches only through a redirect: the browser follows redirects by itself and never asks for it. Give the reply to the address that redirects.
 
 ### `outside`
 
 A request left the app and nothing in the world answers it. The page asked an outside host for something, a redirect tried to leave, or the app's server asked one of its upstream stand-ins for something with no reply. The message says which host to give a reply, or to list under `allow` or `block`.
 
+For a redirect, the message names the address that redirected, because that is the one a reply can answer. ra stops a redirect by its host. When a redirect reaches an allowed host at an address its rule leaves out, the request goes through, and the message says so.
+
 ### `load`
 
-The page did not load: a network error, a timeout, or a navigation the closed world stopped.
+The page did not load: a network error, a timeout, or a navigation the closed world stopped. When the world stopped it, the `outside` finding says where the page was sent.
 
 ### `busy`
 

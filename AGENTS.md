@@ -14,8 +14,8 @@ ra looks at a web app's interface in a real browser inside a fake world, and say
 
 - `src/cli.ts`: the command, its help and its exit codes.
 - `src/config.ts`: `ra.config.ts`, views and states.
-- `src/app.ts`: starting or serving the app.
-- `src/world.ts`: the closed world (routing, the resolver rule, upstream stand-ins).
+- `src/app.ts`: starting or serving the app, and the keeper process that stops all of it.
+- `src/world.ts`: the closed world (routing, the browser switches beneath it, the trial `ra doctor` runs, upstream stand-ins).
 - `src/browser.ts`: the only place a browser is launched, plus the receipt.
 - `src/run.ts`: one session (the app, the stand-ins and one browser) and the looks it runs.
 - `src/observe.ts`: one look at one state through one view.
@@ -28,7 +28,7 @@ ra looks at a web app's interface in a real browser inside a fake world, and say
 - **Quiet on correct pages.** Every finding kind has a planted case in `test/fixtures/site/broken.html`. Every deliberate pattern that looks like a problem but is not one (ellipsis, line clamp, scroller, drawer, screen-reader text) sits in `tricky.html`, which must stay clean. A new check needs both, plus a browser test.
 - **Findings are sentences.** Each names the element and says by how much it is wrong. Write it for an agent that will act on it, and keep CSS jargon out unless it is the fix.
 - **One launch path.** Only `src/browser.ts` starts a browser. Its policy is covered by unit tests: the provisioned Chromium only, never an installed Chrome; one merged `--disable-features` that includes `PaintHolding` and `MacAppCodeSignClone`; `--mute-audio`; and a verified command line.
-- **The world stays closed.** A request that nothing in the world answers is stopped and reported, including against deployments. Do not add a way around this.
+- **The world stays closed.** A request that nothing in the world answers is stopped and reported, including against deployments. Do not add a way around this. The `leave`, `detours` and closed-world browser tests, and the trial in `ra doctor`, prove it; a change that weakens one of them is a regression.
 - **Public repository.** Docs and examples describe kinds of product in general terms. Do not name or describe private products that use ra, or include their data.
 
 ## Delivery
