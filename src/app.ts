@@ -186,6 +186,8 @@ export interface StartOptions {
   url?: string;
   /** Where the app's output goes while it starts. */
   log?: (line: string) => void;
+  /** Stop the app and give up waiting for it once this is aborted. */
+  signal?: AbortSignal;
 }
 
 /** Starts the app, or finds it running, and waits until it answers. */
@@ -268,6 +270,10 @@ export async function startApp(spec: AppSpec | undefined, options: StartOptions)
   const deadline = Date.now() + (spec.timeout ?? 120) * 1000;
   const tail = () => (output.trim() === "" ? "It printed nothing." : `Its last output:\n${output.trim().split("\n").slice(-15).join("\n")}`);
   for (;;) {
+    if (options.signal?.aborted === true) {
+      await stop();
+      throw new AppError(`ra stopped the app before it answered (${command}), because the run was closing.`);
+    }
     if (exited !== undefined) {
       await stop();
       throw new AppError(`The app stopped before it answered (${command}). ${tail()}`);

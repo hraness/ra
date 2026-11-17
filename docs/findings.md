@@ -97,7 +97,7 @@ A request failed or answered 4xx/5xx. An error the world was told to give is the
 
 A request left the app and nothing in the world answers it. The page asked an outside host for something, a redirect tried to leave, or the app's server asked one of its upstream stand-ins for something with no reply. The message says which host to give a reply, or to list under `allow` or `block`.
 
-For a redirect, the message names the address that redirected, because that is the one a reply can answer. ra stops a redirect by its host, so some hops go through: to an allowed host at an address its rule leaves out, to a path on the app that is under `block`, or to a host that only another state allows, since the states of a run share one browser. The message then says that the request went through, and why. Hops that went through are reported first, apart from the ones that were stopped.
+For a redirect, the message names the address that redirected, because that is the one a reply can answer. ra stops a redirect by its host, so some hops go through: to an allowed host at an address its rule leaves out, to a path on the app that is under `block`, or to a host that only another state allows, since the states of a run share one browser. The message then says that the request went through, and why. A hop counts as stopped only when the closed world's proxy refused it; one that failed some other way, such as at a port where nothing listens, had been let through first, so it is reported as going through. Hops that went through are reported first, apart from the ones that were stopped.
 
 ### `load`
 

@@ -63,7 +63,11 @@ const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
 /** Every session that has started to open and is not closed yet. */
 const open = new Set<() => Promise<void>>();
 
-/** Closes every session still open, such as when ra is interrupted. */
+/**
+ * Closes every session still open, such as when ra is interrupted, and
+ * resolves once everything they started has stopped. A session that is still
+ * opening finishes the step under way first.
+ */
 export async function closeSessions(): Promise<void> {
   await Promise.allSettled([...open].map((close) => close()));
 }
@@ -98,13 +102,21 @@ export async function openSession(project: Project, options: SessionOptions = {}
     await app?.stop().catch(() => undefined);
     await upstreams?.close().catch(() => undefined);
   };
+  let settle!: () => void;
+  const opened = new Promise<void>((done) => (settle = done));
+  const aborted = new AbortController();
   let closing: Promise<void> | undefined;
+  // Closing can come while the session is still opening, such as on Ctrl-C.
+  // Then the step under way ends first, so that what it started is stopped too.
   const close = () => {
-    closing ??= stop().finally(() => open.delete(close));
+    closing ??= (async () => {
+      aborted.abort();
+      await opened;
+      await stop();
+    })().finally(() => open.delete(close));
     return closing;
   };
   open.add(close);
-  // Closing can come while the session is still opening, such as on Ctrl-C.
   const closedWhileOpening = () => {
     if (closing !== undefined) throw new Error("The session was closed while it was opening.");
   };
@@ -118,6 +130,7 @@ export async function openSession(project: Project, options: SessionOptions = {}
     }
     app = await startApp(project.app, {
       root: project.root,
+      signal: aborted.signal,
       ...(upstreams === undefined ? {} : { upstreams: upstreams.urls }),
       ...(options.url === undefined ? {} : { url: options.url }),
       ...(options.log === undefined ? {} : { log: options.log }),
@@ -156,6 +169,7 @@ export async function openSession(project: Project, options: SessionOptions = {}
         },
       });
     };
+    settle();
     return {
       project,
       origin,
@@ -184,9 +198,8 @@ export async function openSession(project: Project, options: SessionOptions = {}
       close,
     };
   } catch (error) {
+    settle();
     await close();
-    // A close that came while this was opening ran before these had started.
-    await stop();
     throw error;
   }
 }

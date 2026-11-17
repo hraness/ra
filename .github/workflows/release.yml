@@ -184,21 +184,37 @@ jobs:
             fi
           }
 
-          # A rerun after a published release only confirms it. Drafts left
-          # by earlier failed runs are removed; the tag stays.
-          existing="$(release_state)"
+          # Removes this tag's drafts by id. gh looks a tag up as a published
+          # release and as a draft at once and takes whichever answers first,
+          # so going by the tag could delete a published release of the same
+          # tag. The tag was checked to be a plain version, so it is safe in jq.
+          remove_drafts() {
+            local ids id
+            ids="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+              --jq ".[] | select(.draft and .tag_name == \"$GITHUB_REF_NAME\") | .id")" || return 1
+            for id in $ids; do
+              gh api --method DELETE "repos/$GH_REPO/releases/$id" >/dev/null || return 1
+            done
+          }
+
+          # Drafts left by earlier failed runs go first, so that looking the
+          # tag up finds only a published release or nothing; the tag stays.
+          # A rerun after a published release only confirms it.
+          for _ in 1 2 3; do
+            if ! remove_drafts; then
+              echo "::error::Could not remove the old drafts of $GITHUB_REF_NAME"
+              exit 1
+            fi
+            existing="$(release_state)"
+            [[ "$existing" == "true" ]] || break
+          done
           if [[ "$existing" == "false" ]]; then
             check_published
             echo "$GITHUB_REF_NAME was already published with $TARBALL (sha256:$SHA256)"
             exit 0
           fi
-          for _ in 1 2 3 4 5; do
-            [[ "$existing" == "true" ]] || break
-            gh release delete "$GITHUB_REF_NAME" --yes
-            existing="$(release_state)"
-          done
           if [[ -n "$existing" ]]; then
-            echo "::error::Release $GITHUB_REF_NAME still exists after removing old drafts"
+            echo "::error::A draft of $GITHUB_REF_NAME is still there after removing old drafts"
             exit 1
           fi
 
@@ -214,8 +230,11 @@ jobs:
               return 0
             fi
             if [[ "$(release_state 2>/dev/null || true)" == "true" ]]; then
-              gh release delete "$GITHUB_REF_NAME" --yes || true
-              echo "::error::Removed the unpublished draft of $GITHUB_REF_NAME"
+              if remove_drafts; then
+                echo "::error::Removed the unpublished draft of $GITHUB_REF_NAME"
+              else
+                echo "::error::Could not remove the unpublished draft of $GITHUB_REF_NAME; the next run removes it"
+              fi
             fi
           }
           trap remove_draft EXIT

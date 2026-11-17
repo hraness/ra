@@ -214,8 +214,28 @@ export function allowsHost(world: World, url: URL): boolean {
   const hosts = reachableHosts([world]);
   if (hosts === null) return true;
   // A rule may name the port even when it is the default, which the address leaves out.
-  const names = [url.hostname, `${url.hostname}:${url.port || (url.protocol === "https:" ? "443" : "80")}`];
+  const names = [url.hostname, `${url.hostname}:${portOf(url)}`];
   return hosts.some((host) => names.some((name) => glob(host).test(name)));
+}
+
+/** The port an address uses, with the scheme's default filled in. */
+function portOf(url: URL): string {
+  return url.port || (url.protocol === "https:" || url.protocol === "wss:" ? "443" : "80");
+}
+
+/**
+ * The app's own addresses as the browser's switches name them: its host on
+ * its port, or every loopback name on its port for an app on this machine.
+ */
+function ownAddresses(origin: string): string[] {
+  const app = new URL(origin);
+  const port = portOf(app);
+  return LOOPBACK.has(app.hostname) ? [...LOOPBACK].map((name) => `${name}:${port}`) : [`${app.hostname}:${port}`];
+}
+
+/** Whether the browser lets a request through as one to the app itself. It goes by host and port, whatever the scheme. */
+export function isOwnAddress(url: URL, origin: string): boolean {
+  return ownAddresses(origin).includes(`${url.hostname}:${portOf(url)}`);
 }
 
 /** Makes every host name fail to resolve except loopback and the hosts given. */
@@ -239,10 +259,8 @@ const NOWHERE = "http://127.0.0.1:1";
  * connections, which the proxy refuses.
  */
 export function closedWorldSwitches(origin: string, hosts: readonly string[]): string[] {
-  const app = new URL(origin);
-  const port = app.port || (app.protocol === "https:" ? "443" : "80");
-  // An app on this machine answers to every loopback name, on its own port only.
-  const own = LOOPBACK.has(app.hostname) ? [...LOOPBACK].map((name) => `${name}:${port}`) : [app.host];
+  // Only the app's own port: a bypass entry without one would let every port and scheme of that host through.
+  const own = ownAddresses(origin);
   return [
     resolverSwitch([...own, ...hosts]),
     `--proxy-server=${NOWHERE}`,

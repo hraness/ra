@@ -10,7 +10,7 @@ import { findLowContrast } from "./contrast.ts";
 import { inspectPage, type Box, type InspectOptions, type Region } from "./inspect.ts";
 import { outlineOf } from "./outline.ts";
 import { decodePng } from "./png.ts";
-import { allowsHost, closeWorld, judge, sameApp, type Verdict } from "./world.ts";
+import { allowsHost, closeWorld, isOwnAddress, judge, sameApp, type Verdict } from "./world.ts";
 
 export interface Finding {
   /** What sort of problem this is, such as `cut-off` or `contrast`. */
@@ -264,7 +264,9 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       while (first.redirectedFrom() !== null) first = first.redirectedFrom()!;
       return first.url();
     };
-    const settleHop = (request: Request, reached: boolean): boolean => {
+    // A hop was answered, stopped by the closed world's proxy, or let through
+    // and then failed some other way, such as a refused connection.
+    const settleHop = (request: Request, fate: "answered" | "stopped" | "failed"): boolean => {
       const verdict = hops.get(request);
       if (verdict === undefined) return false;
       hops.delete(request);
@@ -276,12 +278,12 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
           ? `Give ${from} the reply instead`
           : `No reply stands in for ${from} on a deployment, so block ${from}, or look at the app on this machine, where ${from} can have the reply`;
         refused.push(
-          `${request.method()} ${brief(request.url(), origin)} has a reply, but the page reached it through a redirect from ${from}, which the browser follows by itself, so ${reached ? "the real address answered" : "the request failed"}. ${fix}`,
+          `${request.method()} ${brief(request.url(), origin)} has a reply, but the page reached it through a redirect from ${from}, which the browser follows by itself, so ${fate === "answered" ? "the real address answered" : "the request failed"}. ${fix}`,
         );
-      } else if (verdict === "blocked" && !reached) {
+      } else if (verdict === "blocked" && fate === "stopped") {
         calls.push({ ...call, outcome: "blocked" });
       } else {
-        calls.push(reached ? { ...call, reached: true } : call);
+        calls.push(fate === "stopped" ? call : { ...call, reached: true });
       }
       return true;
     };
@@ -301,8 +303,11 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     page.on("requestfailed", (request) => {
       pending.delete(request);
       lastActivity = performance.now();
-      if (settleHop(request, false)) return;
       const reason = request.failure()?.errorText ?? "";
+      // A hop counts as stopped only when the closed world's proxy refused it.
+      // That refusal comes at once, so a hop that failed some other way had
+      // been let through; when in doubt, a false alarm beats false comfort.
+      if (settleHop(request, /ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(reason) ? "stopped" : "failed")) return;
       if (/ERR_ABORTED|ERR_BLOCKED_BY_CLIENT/u.test(reason)) return;
       if (/ERR_NAME_NOT_RESOLVED|ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(reason) && verdictOf(request) === "unexpected") {
         // Routing never saw this one, and the closed world stopped it.
@@ -313,7 +318,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     });
     page.on("response", (response) => {
       const request = response.request();
-      settleHop(request, true);
+      settleHop(request, "answered");
       if (request === document || response.status() < 400) return;
       // An error the world was told to give is the state, not a problem.
       if (verdictOf(request) === "replied" && request.redirectedFrom() === null) return;
@@ -539,7 +544,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
         }
         const target = new URL(first.url);
         const blocked = judge(state.world, origin, first.method, target, { live }) === "blocked";
-        const why = sameApp(target, origin)
+        const why = isOwnAddress(target, origin)
           ? "it is on the app's own address"
           : allowsHost(state.world, target)
             ? `${key} is allowed`

@@ -257,7 +257,7 @@ It then launches with:
 
 - a single `--disable-features` switch holding Playwright's list plus `PaintHolding` and `MacAppCodeSignClone`
 - `--mute-audio`
-- the closed world: a proxy that refuses everything, bypassed only for the app and the allowed hosts; a host-resolver rule that lets no other name resolve; and WebRTC held to proxied connections, which that proxy refuses
+- the closed world: a proxy that refuses everything, bypassed only for the app on its own port and for the allowed hosts; a host-resolver rule that lets no other name resolve; and WebRTC held to proxied connections, which that proxy refuses
 
 After launch, ra reads `Browser.getBrowserCommandLine` and refuses to continue unless the running browser has every one of these. Every run ends with a receipt line. `ra doctor` shows the same receipt and tries the closed world: a throwaway app must answer, while another port on this machine, an IP address, an outside host and a WebRTC connection must each be stopped.
 
@@ -275,7 +275,7 @@ ra runs on macOS and Linux and is tested with playwright-core 1.58 through 1.65.
   const owned = await openBrowser({ args: hosts === null ? [] : closedWorldSwitches(origin, hosts) });
   ```
 
-  Like Playwright, `openBrowser` closes the browser and exits on Ctrl-C. Pass `handleSignals: false` when your script handles those signals itself.
+  Like Playwright, `openBrowser` closes the browser on SIGINT, SIGTERM and SIGHUP, and exits on Ctrl-C. Pass `handleSignals: false` when your script handles those signals itself.
 - `ruleProblem`: what is wrong with a rule, in words, or `null`
 - `observe` and `inspectPage`: a look
 - `compareLooks`: a diff

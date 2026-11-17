@@ -117,7 +117,10 @@ describe("ra check on the fixture site", () => {
     assert.ok(!leave.title.includes("Example Domain"), "example.com was reached");
     const outside = leave.findings.find((finding) => finding.kind === "outside")!;
     assert.match(outside.message, /^A redirect from \/leave tried to take the page to https:\/\/example\.com\/, which is not in its world, and was stopped\./u);
-    assert.match(leave.findings.find((finding) => finding.kind === "load")!.message, /sent outside its world/u);
+    assert.match(
+      leave.findings.find((finding) => finding.kind === "load")!.message,
+      /^The page did not load, because a redirect from \/leave sent it outside its world, to https:\/\/example\.com\/ \(net::ERR_PROXY_CONNECTION_FAILED at \S+\)\. The outside finding says more\.$/u,
+    );
   });
 
   test("stops redirect hops that routing never sees, blocks them quietly, and says when a reply could not answer one", () => {
@@ -186,12 +189,18 @@ describe("the closed world", () => {
     });
     await new Promise<void>((done) => other.listen(0, "127.0.0.1", done));
     const port = (other.address() as AddressInfo).port;
+    // A port that nothing listens on.
+    const closed = createServer();
+    await new Promise<void>((done) => closed.listen(0, "127.0.0.1", done));
+    const dead = (closed.address() as AddressInfo).port;
+    await new Promise<void>((done) => closed.close(() => done()));
     try {
       const copy = copySite();
       mkdirSync(join(copy, "track"));
       cpSync(join(copy, "ok.png"), join(copy, "track", "p.png"));
       writeFileSync(join(copy, "pixel.html"), html("Pixel", '<img src="/pixel" alt="">'));
       writeFileSync(join(copy, "mixed.html"), html("Mixed", `<script src="/hop"></script><script src="http://localhost:${port}/direct.js"></script>`));
+      writeFileSync(join(copy, "refused.html"), html("Refused", '<script src="/dead"></script>'));
       writeFileSync(
         join(copy, "ra.config.ts"),
         `import { defineConfig } from ${JSON.stringify(index)};
@@ -213,6 +222,11 @@ export default defineConfig({
     pixel: { url: "/pixel.html", world: { replies: { "GET /pixel": { status: 302, headers: { location: "/track/p.png" } } }, block: ["/track/**"] } },
     // A script is sent to a host that only slip's world allows; the states share one browser.
     mixed: { url: "/mixed.html", world: { replies: { "GET /hop": { status: 302, headers: { location: "http://localhost:${port}/hopped.js" } } } } },
+    // A script is sent past the proxy to a port where nothing listens, so it fails, but it was not stopped.
+    refused: {
+      url: "/refused.html",
+      world: { replies: { "GET /dead": { status: 302, headers: { location: "http://localhost:${dead}/dead.js" } } }, allow: ["localhost:${dead}/ok/**"] },
+    },
   },
 });
 `,
@@ -257,6 +271,12 @@ export default defineConfig({
         "what went through comes first, apart from what was stopped on the same host",
       );
       assert.match(asked!, /^The page asked localhost:\d+ for a script \(GET http:\/\/localhost:\d+\/direct\.js\); nothing in its world answers\./u);
+
+      assert.deepEqual(kinds(found, "refused", "desktop"), ["outside"]);
+      assert.equal(
+        said("refused", "outside")[0],
+        `A redirect from /dead took the page's request for a script to http://localhost:${dead}/dead.js, which its world does not allow, and the request went through, because localhost:${dead} is allowed, and ra can stop a redirect only by its host. Give /dead a reply that does not redirect there, or allow that address too.`,
+      );
 
       assert.deepEqual(
         seen.filter((path) => path !== "/favicon.ico").sort(),
@@ -319,6 +339,7 @@ export default defineConfig({
         `import { defineConfig } from ${JSON.stringify(index)};
 export default defineConfig({
   views: ["desktop"],
+  states: { home: "/" },
   world: { replies: { "https://cdn.example.test/**": { body: "" } }, block: ["/ph/**"] },
 });
 `,

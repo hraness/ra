@@ -62,9 +62,10 @@ export interface OpenBrowserOptions {
   /** Milliseconds to wait for the browser to start. */
   timeout?: number;
   /**
-   * Let Playwright close the browser and end the process on SIGINT, SIGTERM
-   * and SIGHUP, as it does by default. Turn it off only when the caller
-   * handles those signals and closes the browser itself, as the CLI does.
+   * Leave SIGINT, SIGTERM and SIGHUP to Playwright, as by default: it closes
+   * its browsers on each of them, and on SIGINT it also ends the process.
+   * Turn it off only when the caller handles those signals and closes the
+   * browser itself, as the CLI does.
    */
   handleSignals?: boolean;
 }
@@ -276,8 +277,9 @@ export async function defaultArguments(playwright: Playwright, options: { fresh?
 }
 
 /**
- * Playwright otherwise closes its browsers and exits on Ctrl-C by itself. The
- * CLI turns that off, because it stops the app and closes everything in order.
+ * Playwright otherwise closes its browsers on SIGINT, SIGTERM and SIGHUP, and
+ * exits on SIGINT. The CLI turns that off, because it stops the app and
+ * closes everything in order.
  * The launch that only reads Playwright's arguments starts no real browser,
  * so it never hands Playwright the signals.
  */

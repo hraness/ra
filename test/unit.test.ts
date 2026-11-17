@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { after, describe, test } from "node:test";
 import { serveStatic, startApp } from "../src/app.ts";
 import { checkCommandLine, planLaunch, rejectInstalledChrome, resolveExecutable } from "../src/browser.ts";
-import { ConfigError, mergeWorlds, readConfig, resolveView } from "../src/config.ts";
+import { ConfigError, loadProject, mergeWorlds, readConfig, resolveView } from "../src/config.ts";
 import { contrastRatio, findLowContrast, neededRatio } from "../src/contrast.ts";
 import { boxChanges, lineChanges } from "../src/diff.ts";
 import type { Box } from "../src/inspect.ts";
@@ -18,7 +18,8 @@ import { applyAccepts, type Finding, type Observation } from "../src/observe.ts"
 import { outlineOf } from "../src/outline.ts";
 import { comparePixels, decodePng, encodePng, frame, type Image } from "../src/png.ts";
 import { checkText } from "../src/report.ts";
-import { allowsHost, closedWorldSwitches, findReply, judge, reachableHosts, resolverSwitch, sameApp, startUpstreams } from "../src/world.ts";
+import { closeSessions, openSession } from "../src/run.ts";
+import { allowsHost, closedWorldSwitches, findReply, isOwnAddress, judge, reachableHosts, resolverSwitch, sameApp, startUpstreams } from "../src/world.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "ra-unit-"));
 after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -203,9 +204,22 @@ describe("the closed world", () => {
       "--proxy-bypass-list=<-loopback>;127.0.0.1:4000;localhost:4000;[::1]:4000;0.0.0.0:4000;fonts.example.com;*.cdn.example;localhost:8080",
       "--webrtc-ip-handling-policy=disable_non_proxied_udp",
     ]);
+    // A deployment's entry names its port even when it is the default, since one without a port lets every port through.
     const deployment = closedWorldSwitches("https://www.example.com", []);
     assert.match(deployment[0]!, /EXCLUDE www\.example\.com$/u);
-    assert.equal(deployment[2], "--proxy-bypass-list=<-loopback>;www.example.com");
+    assert.equal(deployment[2], "--proxy-bypass-list=<-loopback>;www.example.com:443");
+    assert.equal(closedWorldSwitches("http://app.example.com:8080", [])[2], "--proxy-bypass-list=<-loopback>;app.example.com:8080");
+  });
+
+  test("knows which addresses the browser lets through as the app's own", () => {
+    assert.equal(isOwnAddress(new URL("https://www.example.com/a"), "https://www.example.com"), true);
+    assert.equal(isOwnAddress(new URL("https://www.example.com:443/a"), "https://www.example.com"), true, "the default port, named");
+    assert.equal(isOwnAddress(new URL("http://www.example.com:8080/a"), "https://www.example.com"), false, "another port of the same host");
+    assert.equal(isOwnAddress(new URL("https://api.example.com/a"), "https://www.example.com"), false);
+    assert.equal(isOwnAddress(new URL("http://localhost:5000/a"), "http://127.0.0.1:5000"), true, "any loopback name");
+    assert.equal(isOwnAddress(new URL("http://[::1]:5000/a"), "http://0.0.0.0:5000"), true);
+    assert.equal(isOwnAddress(new URL("https://127.0.0.1:5000/a"), "http://127.0.0.1:5000"), true, "the browser goes by host and port, whatever the scheme");
+    assert.equal(isOwnAddress(new URL("http://127.0.0.1:5001/a"), "http://127.0.0.1:5000"), false);
   });
 
   test("lets an app on this machine through by any loopback name it is given as", () => {
@@ -334,6 +348,20 @@ setInterval(() => undefined, 1000);
     assert.equal(await exited, 130);
     assert.equal(err, "", "an interrupt is not an error");
     await until(() => !alive(sleeper), 5000, "the app outlived an interrupted ra");
+  });
+
+  test("closing every session waits for one that is still starting its app, and stops the app", async () => {
+    const project = mkdtempSync(join(scratch, "opening-"));
+    const pids = join(project, "pids");
+    writeFileSync(join(project, "ra.config.ts"), `export default { app: { command: ${JSON.stringify(`sleep 300 & echo $! > ${pids}; sleep 300`)}, timeout: 60 }, states: { home: "/" } };\n`);
+    const opening = openSession(await loadProject(project));
+    const refused = assert.rejects(opening, /^AppError: ra stopped the app before it answered \(.*\), because the run was closing\.$/su);
+    await until(() => existsSync(pids) && readFileSync(pids, "utf8").trim() !== "", 10_000, "the app never started");
+    const sleeper = Number(readFileSync(pids, "utf8"));
+    await closeSessions();
+    // The keeper exits once the app's whole group is gone; allow a moment for the system to reap it.
+    await until(() => !alive(sleeper), 1000, "closeSessions returned while the app was still running");
+    await refused;
   });
 
   test("a static file that cannot be read fails that response, and the server keeps going", async (t) => {
