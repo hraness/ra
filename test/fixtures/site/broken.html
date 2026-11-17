@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — Broken on purpose</title>
+    <link rel="stylesheet" href="/site.css" />
+    <style>
+      section { margin: 0 0 28px; }
+      .too-wide { width: 900px; padding: 12px; border: 1px solid var(--line); }
+      .cut { width: 96px; overflow: hidden; white-space: nowrap; }
+      .tight { width: 130px; padding: 12px; background: var(--wash); border: 1px solid var(--line); }
+      .stack p { margin: 0; }
+      .stack p + p { margin-top: -20px; }
+      .under { position: relative; display: inline-block; }
+      .veil { position: absolute; inset: 0; background: rgba(127, 127, 127, 0.25); }
+      .tiny button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); background: var(--paper); font-size: 10px; }
+      .faint { color: #b9bdc7; background: #ffffff; padding: 4px 0; }
+      .stretched { width: 300px; height: 60px; }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/">Fixture</a>
+      <nav aria-label="Main"><a href="/">Home</a><a href="/tricky">Tricky</a></nav>
+    </header>
+    <main>
+      <h1>Everything here is wrong</h1>
+
+      <section id="wide"><div class="too-wide">This box is 900 pixels wide whatever the screen is.</div></section>
+
+      <section id="cut"><button class="button cut" type="button">Subscribe to updates</button></section>
+
+      <section id="spill"><div class="tight">Supercalifragilisticexpialidocious</div></section>
+
+      <section id="stack" class="stack"><p>The first line of two that collide.</p><p>The second line sits on the first.</p></section>
+
+      <section id="covered"><span class="under"><button class="button" type="button">Pay now</button><span class="veil"></span></span></section>
+
+      <section id="tiny" class="tiny"><button type="button" aria-label="Previous">‹</button><button type="button" aria-label="Next">›</button></section>
+
+      <section id="faint"><p class="faint">This grey text is too pale to read comfortably.</p></section>
+
+      <section id="pictures">
+        <img src="/missing.png" alt="A picture that is missing" width="120" height="80" />
+        <img class="stretched" src="/ok.png" alt="A stretched picture" />
+        <img src="/ok.png" width="60" height="40" />
+      </section>
+
+      <section id="nameless"><button class="button" type="button"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" /></svg></button></section>
+    </main>
+    <script>
+      console.error("Something the app logged as an error");
+      fetch("/api/missing").catch(() => {});
+      fetch("https://api.example.com/v1/me").catch(() => {});
+      const pixel = document.createElement("script");
+      pixel.src = "https://analytics.example.com/a.js";
+      document.head.append(pixel);
+      setTimeout(() => { throw new Error("An exception nobody caught"); }, 0);
+    </script>
+  </body>
+</html>

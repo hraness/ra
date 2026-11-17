@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — Tricky but fine</title>
+    <link rel="stylesheet" href="/site.css" />
+    <style>
+      .skip { position: absolute; left: -9999px; top: 0; }
+      .skip:focus { left: 8px; top: 8px; }
+      .truncate { width: 180px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; max-width: 260px; }
+      .strip { display: flex; gap: 12px; overflow-x: auto; padding: 4px 0 12px; }
+      .strip > div { flex: 0 0 220px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); }
+      .hero { padding: 40px 24px; border-radius: 12px; color: #ffffff; background: linear-gradient(120deg, #0b2a6f, #3a0f6b); }
+      .hero p { margin: 0; font-size: 20px; }
+      .toggle { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+      .toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+      .toggle span { width: 44px; height: 26px; border-radius: 13px; background: var(--line); display: inline-block; }
+      .drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 260px; padding: 20px; background: var(--wash); transform: translateX(-100%); }
+      .icon { display: inline-grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }
+      .scroller { height: 120px; overflow-y: auto; border: 1px solid var(--line); padding: 8px 12px; }
+      .badge { position: relative; display: inline-block; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; }
+      .badge b { position: absolute; top: -8px; right: -8px; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: #b00020; color: #fff; font-size: 12px; line-height: 20px; text-align: center; }
+      table { border-collapse: collapse; }
+      td, th { padding: 6px 12px; border: 1px solid var(--line); text-align: left; }
+      .wide { overflow-x: auto; }
+      .wide table { min-width: 720px; }
+      button:disabled { color: #9aa0ad; background: var(--wash); border: 1px solid var(--line); padding: 10px 14px; border-radius: 8px; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <a class="skip" href="#content">Skip to content</a>
+    <header class="top">
+      <a class="brand" href="/">Fixture</a>
+      <nav aria-label="Main">
+        <a href="/">Home</a>
+        <a href="/broken">Broken</a>
+      </nav>
+    </header>
+    <aside class="drawer" aria-label="Menu drawer">
+      <p><a href="/">Drawer home</a></p>
+      <p><a href="/broken">Drawer broken</a></p>
+    </aside>
+    <main id="content">
+      <h1>Things that look like problems and are not</h1>
+      <p class="lede">Each block below does something on purpose that a careless check would report.</p>
+
+      <h2>Shortened on purpose</h2>
+      <p class="truncate">This sentence is far longer than its box and ends in an ellipsis.</p>
+      <p class="clamp">This paragraph is clamped to two lines. Everything after the second line is hidden by design, and a reader sees an ellipsis where it stops, however long the paragraph goes on after that.</p>
+
+      <h2>Scrolls on purpose</h2>
+      <div class="strip" tabindex="0" role="group" aria-label="Cards that scroll sideways">
+        <div>First card in the strip</div>
+        <div>Second card in the strip</div>
+        <div>Third card in the strip</div>
+        <div>Fourth card in the strip</div>
+        <div>Fifth card in the strip</div>
+        <div>Sixth card in the strip</div>
+        <div>Seventh card in the strip</div>
+      </div>
+      <div class="scroller" tabindex="0" role="group" aria-label="A box that scrolls">
+        <p>Line one of a tall box.</p><p>Line two.</p><p>Line three.</p><p>Line four.</p><p>Line five.</p><p>Line six.</p>
+      </div>
+      <div class="wide" tabindex="0" role="group" aria-label="A wide table">
+        <table>
+          <thead><tr><th>Name</th><th>Quantity</th><th>Price</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Tea</td><td>2</td><td>4.00</td><td>Loose leaf, second flush</td></tr>
+            <tr><td>Cups</td><td>6</td><td>18.00</td><td>Stoneware</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Text on a picture</h2>
+      <div class="hero"><p>White text on a dark gradient reads well.</p></div>
+
+      <h2>Hidden for readers of the screen only</h2>
+      <p>Opens in a new tab<span class="sr-only"> (this note is for screen readers)</span>.</p>
+
+      <h2>Controls drawn their own way</h2>
+      <p><label class="toggle"><input type="checkbox" /><span></span> Dark mode</label></p>
+      <p>
+        <button class="icon" type="button" aria-label="Search"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="2" /></svg></button>
+        <button class="icon" type="button" aria-label="Settings"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="3" y="3" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" /></svg></button>
+      </p>
+      <p><span class="badge">Inbox <b>12</b></span></p>
+      <p><button type="button" disabled>Not available yet</button></p>
+      <details><summary>More about this</summary><p>Hidden until opened.</p></details>
+
+      <h2>Links in a sentence</h2>
+      <p>Read <a href="/">the home page</a>, then <a href="/broken">the broken page</a>, and compare what <a href="/tricky">this page</a> reports with both of them.</p>
+    </main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/">Home</a>
+        <a href="/broken">Broken</a>
+      </nav>
+    </footer>
+  </body>
+</html>
