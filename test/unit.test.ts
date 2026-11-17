@@ -19,7 +19,7 @@ import { outlineOf } from "../src/outline.ts";
 import { comparePixels, decodePng, encodePng, frame, type Image } from "../src/png.ts";
 import { checkText } from "../src/report.ts";
 import { closeSessions, openSession } from "../src/run.ts";
-import { allowsHost, closedWorldSwitches, findReply, isOwnAddress, judge, reachableHosts, resolverSwitch, sameApp, startUpstreams } from "../src/world.ts";
+import { allowsHost, closedWorldSwitches, findReply, isAppElsewhere, isOwnAddress, judge, reachableHosts, resolverSwitch, sameApp, startUpstreams, stoppedByClosedWorld } from "../src/world.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "ra-unit-"));
 after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -220,6 +220,31 @@ describe("the closed world", () => {
     assert.equal(isOwnAddress(new URL("http://[::1]:5000/a"), "http://0.0.0.0:5000"), true);
     assert.equal(isOwnAddress(new URL("https://127.0.0.1:5000/a"), "http://127.0.0.1:5000"), true, "the browser goes by host and port, whatever the scheme");
     assert.equal(isOwnAddress(new URL("http://127.0.0.1:5001/a"), "http://127.0.0.1:5000"), false);
+  });
+
+  test("says a failed request was stopped only when the closed world stopped it", () => {
+    const origin = "http://127.0.0.1:5000";
+    const hosts = ["api.example.com", "cdn.example.com:8443"];
+    const stopped = (url: string, error: string, reachable: readonly string[] | null = hosts) => stoppedByClosedWorld(new URL(url), error, origin, reachable);
+    assert.equal(stopped("https://other.example.com/a", "net::ERR_TUNNEL_CONNECTION_FAILED"), true, "the proxy refused it");
+    assert.equal(stopped("https://api.example.com/a", "net::ERR_TUNNEL_CONNECTION_FAILED"), true, "a refusal by the proxy is the last word");
+    assert.equal(stopped("https://api.example.com/a", "net::ERR_NAME_NOT_RESOLVED"), false, "an allowed host failed by itself");
+    assert.equal(stopped("http://localhost:5000/a", "net::ERR_CONNECTION_REFUSED"), false, "the app's own address");
+    assert.equal(stopped("https://cdn.example.com:8443/a", "net::ERR_CONNECTION_RESET"), false, "an allowed host on the port its rule names");
+    assert.equal(stopped("https://cdn.example.com/a", "net::ERR_ABORTED"), true, "another port of a host allowed on one port only");
+    assert.equal(stopped("http://other.example.com:6000/a", "net::ERR_UNSAFE_PORT"), true, "the browser refused it before the proxy could");
+    assert.equal(stopped("https://other.example.com/a", "net::ERR_TUNNEL_CONNECTION_FAILED", null), false, "nothing is stopped when every host is let through");
+  });
+
+  test("knows the app's own site at another address", () => {
+    assert.equal(isAppElsewhere(new URL("https://example.com/"), "http://example.com"), true, "upgraded to https");
+    assert.equal(isAppElsewhere(new URL("https://www.example.com/a"), "https://example.com"), true, "with www.");
+    assert.equal(isAppElsewhere(new URL("https://example.com/a"), "http://www.example.com"), true, "upgraded, without www.");
+    assert.equal(isAppElsewhere(new URL("https://example.com/a"), "https://example.com"), false, "the app itself");
+    assert.equal(isAppElsewhere(new URL("http://example.com/a"), "https://example.com"), false, "downgraded");
+    assert.equal(isAppElsewhere(new URL("https://example.com:8443/a"), "https://example.com"), false, "another port");
+    assert.equal(isAppElsewhere(new URL("https://app.example.com/a"), "https://example.com"), false, "another host");
+    assert.equal(isAppElsewhere(new URL("http://www.app.localhost:5000/"), "http://app.localhost:5000"), true);
   });
 
   test("lets an app on this machine through by any loopback name it is given as", () => {

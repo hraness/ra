@@ -160,6 +160,7 @@ export async function openSession(project: Project, options: SessionOptions = {}
         project,
         origin,
         live,
+        reachable: hosts,
         state,
         view: job.view,
         ...lookOptions,

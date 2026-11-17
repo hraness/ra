@@ -212,7 +212,11 @@ export function reachableHosts(worlds: readonly World[]): string[] | null {
  */
 export function allowsHost(world: World, url: URL): boolean {
   const hosts = reachableHosts([world]);
-  if (hosts === null) return true;
+  return hosts === null || hostsInclude(hosts, url);
+}
+
+/** Whether one of these host patterns, as `reachableHosts` gives them, names this address's host. */
+export function hostsInclude(hosts: readonly string[], url: URL): boolean {
   // A rule may name the port even when it is the default, which the address leaves out.
   const names = [url.hostname, `${url.hostname}:${portOf(url)}`];
   return hosts.some((host) => names.some((name) => glob(host).test(name)));
@@ -236,6 +240,33 @@ function ownAddresses(origin: string): string[] {
 /** Whether the browser lets a request through as one to the app itself. It goes by host and port, whatever the scheme. */
 export function isOwnAddress(url: URL, origin: string): boolean {
   return ownAddresses(origin).includes(`${url.hostname}:${portOf(url)}`);
+}
+
+/**
+ * Whether the closed world stopped a request that failed with this error.
+ * The browser lets through only the app's own address and the reachable
+ * hosts, and sends everything else to a proxy that refuses it at once. A
+ * request it let through that failed some other way, such as at a port where
+ * nothing listens, was not stopped; nor was anything when every host is
+ * reachable.
+ */
+export function stoppedByClosedWorld(url: URL, error: string, origin: string, reachable: readonly string[] | null): boolean {
+  if (reachable === null) return false;
+  if (/ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(error)) return true;
+  return !isOwnAddress(url, origin) && !hostsInclude(reachable, url);
+}
+
+/**
+ * Whether an address is the app's own site at an address ra does not count
+ * as the app: on https when the app was given on http, or with or without
+ * `www.`. A deployment often redirects every page to its one address so.
+ */
+export function isAppElsewhere(url: URL, origin: string): boolean {
+  const app = new URL(origin);
+  const bare = (host: string) => host.replace(/^www\./u, "");
+  if (bare(url.hostname) !== bare(app.hostname) || isOwnAddress(url, origin)) return false;
+  if (url.protocol === app.protocol) return url.port === app.port;
+  return app.protocol === "http:" && url.protocol === "https:" && app.port === "" && url.port === "";
 }
 
 /** Makes every host name fail to resolve except loopback and the hosts given. */

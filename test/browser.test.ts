@@ -326,7 +326,9 @@ export default defineConfig({
       const path = request.url ?? "/";
       seen.push(path);
       const to = redirects[path];
-      if (to !== undefined) response.writeHead(302, { location: to }).end();
+      // A deployment that sends its pages to one address, here with www.
+      if (path === "/moved") response.writeHead(301, { location: `http://www.${request.headers.host}/` }).end();
+      else if (to !== undefined) response.writeHead(302, { location: to }).end();
       else if (path.endsWith(".js")) response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end("");
       else response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(html("Deployed", Object.keys(redirects).map((script) => `<script src="${script}"></script>`).join("")));
     });
@@ -360,6 +362,21 @@ export default defineConfig({
         "A redirect from /out.js tried to take the page's request for a script to https://elsewhere.example.test/out.js, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for elsewhere.example.test cannot answer it. List elsewhere.example.test under block to stop it quietly, or under allow to let it through; no reply stands in for /out.js on a deployment.",
       ]);
       assert.ok(seen.includes("/ph/e.js"), "the blocked path went through, as the finding says");
+
+      // Pointed at an address the site redirects away from, ra says which address to look at.
+      const moved = await ra(["look", `http://app.localhost:${port}/moved`, "--json"], project);
+      assert.equal(moved.status, 0, moved.err);
+      const [away] = (JSON.parse(moved.out) as { looks: Observation[] }).looks;
+      const there = `http://www.app.localhost:${port}`;
+      assert.deepEqual(away!.findings.map((finding) => finding.kind), ["load", "outside"]);
+      assert.match(
+        away!.findings[0]!.message,
+        new RegExp(`^The page did not load, because a redirect from /moved took it to ${there.replaceAll(".", "\\.")}/, the same site at another address, which ra does not count as the app \\(net::ERR_\\w+ at \\S+\\)\\. Look at ${there.replaceAll(".", "\\.")} instead\\.$`, "u"),
+      );
+      assert.equal(
+        away!.findings[1]!.message,
+        `A redirect from /moved tried to take the page to ${there}/. That is the same site at another address, which ra does not count as the app, so it was stopped. Look at ${there} instead.`,
+      );
     } finally {
       deployment.closeAllConnections();
       deployment.close();

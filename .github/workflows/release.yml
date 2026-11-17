@@ -188,12 +188,18 @@ jobs:
           # release and as a draft at once and takes whichever answers first,
           # so going by the tag could delete a published release of the same
           # tag. The tag was checked to be a plain version, so it is safe in jq.
+          # A draft that is already gone when it is deleted counts as removed.
           remove_drafts() {
             local ids id
             ids="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
               --jq ".[] | select(.draft and .tag_name == \"$GITHUB_REF_NAME\") | .id")" || return 1
             for id in $ids; do
-              gh api --method DELETE "repos/$GH_REPO/releases/$id" >/dev/null || return 1
+              if ! gh api --method DELETE "repos/$GH_REPO/releases/$id" >/dev/null 2>"$RUNNER_TEMP/delete-error"; then
+                if ! grep -q '(HTTP 404)' "$RUNNER_TEMP/delete-error"; then
+                  cat "$RUNNER_TEMP/delete-error" >&2
+                  return 1
+                fi
+              fi
             done
           }
 

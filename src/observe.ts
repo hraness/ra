@@ -10,7 +10,7 @@ import { findLowContrast } from "./contrast.ts";
 import { inspectPage, type Box, type InspectOptions, type Region } from "./inspect.ts";
 import { outlineOf } from "./outline.ts";
 import { decodePng } from "./png.ts";
-import { allowsHost, closeWorld, isOwnAddress, judge, sameApp, type Verdict } from "./world.ts";
+import { allowsHost, closeWorld, isAppElsewhere, isOwnAddress, judge, reachableHosts, sameApp, stoppedByClosedWorld, type Verdict } from "./world.ts";
 
 export interface Finding {
   /** What sort of problem this is, such as `cut-off` or `contrast`. */
@@ -63,6 +63,14 @@ export interface ObserveOptions {
   origin: string;
   /** The app is a deployment, which answers its own requests. */
   live?: boolean;
+  /**
+   * The outside hosts the browser lets through, as given to
+   * `closedWorldSwitches`, or null when it lets every host through. It tells
+   * a request the closed world stopped from one that went through and failed.
+   * `openSession` passes the hosts of all its states, which share one
+   * browser. Without it, only this state's hosts count.
+   */
+  reachable?: readonly string[] | null;
   state: State;
   view: View;
   /** Where pictures are written. Without it, no pictures are kept. */
@@ -229,6 +237,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     }
     const refused: string[] = [];
     const live = options.live === true;
+    const reachable = options.reachable !== undefined ? options.reachable : reachableHosts([state.world]);
     const verdictOf = (request: Request): Verdict | null => {
       try {
         const url = new URL(request.url());
@@ -264,26 +273,28 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       while (first.redirectedFrom() !== null) first = first.redirectedFrom()!;
       return first.url();
     };
-    // A hop was answered, stopped by the closed world's proxy, or let through
-    // and then failed some other way, such as a refused connection.
-    const settleHop = (request: Request, fate: "answered" | "stopped" | "failed"): boolean => {
+    // A hop was answered, or failed with this error. Only a hop the closed
+    // world stopped stayed in; one it let through went out, even if it then
+    // failed, such as at a port where nothing listens.
+    const settleHop = (request: Request, error: string | null): boolean => {
       const verdict = hops.get(request);
       if (verdict === undefined) return false;
       hops.delete(request);
       const via = startOf(request);
       const from = brief(via, origin);
       const call: Call = { from: "page", type: request.resourceType(), method: request.method(), url: request.url(), body: null, outcome: "unexpected", via };
+      const stopped = error !== null && stoppedByClosedWorld(new URL(request.url()), error, origin, reachable);
       if (verdict === "replied") {
         const fix = replyable(via)
           ? `Give ${from} the reply instead`
           : `No reply stands in for ${from} on a deployment, so block ${from}, or look at the app on this machine, where ${from} can have the reply`;
         refused.push(
-          `${request.method()} ${brief(request.url(), origin)} has a reply, but the page reached it through a redirect from ${from}, which the browser follows by itself, so ${fate === "answered" ? "the real address answered" : "the request failed"}. ${fix}`,
+          `${request.method()} ${brief(request.url(), origin)} has a reply, but the page reached it through a redirect from ${from}, which the browser follows by itself, so ${error === null ? "the real address answered" : "the request failed"}. ${fix}`,
         );
-      } else if (verdict === "blocked" && fate === "stopped") {
+      } else if (verdict === "blocked" && stopped) {
         calls.push({ ...call, outcome: "blocked" });
       } else {
-        calls.push(fate === "stopped" ? call : { ...call, reached: true });
+        calls.push(stopped ? call : { ...call, reached: true });
       }
       return true;
     };
@@ -304,10 +315,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       pending.delete(request);
       lastActivity = performance.now();
       const reason = request.failure()?.errorText ?? "";
-      // A hop counts as stopped only when the closed world's proxy refused it.
-      // That refusal comes at once, so a hop that failed some other way had
-      // been let through; when in doubt, a false alarm beats false comfort.
-      if (settleHop(request, /ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(reason) ? "stopped" : "failed")) return;
+      if (settleHop(request, reason)) return;
       if (/ERR_ABORTED|ERR_BLOCKED_BY_CLIENT/u.test(reason)) return;
       if (/ERR_NAME_NOT_RESOLVED|ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(reason) && verdictOf(request) === "unexpected") {
         // Routing never saw this one, and the closed world stopped it.
@@ -318,7 +326,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     });
     page.on("response", (response) => {
       const request = response.request();
-      settleHop(request, "answered");
+      settleHop(request, null);
       if (request === document || response.status() < 400) return;
       // An error the world was told to give is the state, not a problem.
       if (verdictOf(request) === "replied" && request.redirectedFrom() === null) return;
@@ -365,26 +373,30 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       loaded = true;
     } catch (error) {
       const reason = firstLine(error).replace(/^page\.goto: /u, "");
-      // When the closed world stopped a redirect of the page itself, say where it led and which finding says more.
+      // When a redirect of the page itself failed, say where it led, whether
+      // the closed world stopped it, and which finding says more. A network
+      // error is the page's own request failing; a timeout may be anything.
       let last = document as Request | null;
       while (last?.redirectedTo() != null) last = last.redirectedTo();
-      const stopped = /ERR_NAME_NOT_RESOLVED|ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(reason) && last?.redirectedFrom() != null;
-      if (!stopped || last === null) {
+      if (last === null || last.redirectedFrom() === null || !/net::ERR_/u.test(reason)) {
         add("load", `The page did not load: ${reason}`);
       } else {
         const from = brief(startOf(last), origin);
         const to = brief(last.url(), origin);
+        const target = new URL(last.url());
         const verdict = verdictOf(last);
-        add(
-          "load",
-          verdict === "blocked"
-            ? `The page did not load, because a redirect from ${from} took it to ${to}, which its world blocks (${reason}).`
-            : verdict === "replied"
-              ? `The page did not load, because a redirect from ${from} took it to ${to}, which has a reply that the browser could not use, since it follows redirects by itself (${reason}). The request finding says more.`
-              : verdict === "unexpected"
-                ? `The page did not load, because a redirect from ${from} sent it outside its world, to ${to} (${reason}). The outside finding says more.`
-                : `The page did not load, because a redirect from ${from} to ${to} failed (${reason}).`,
-        );
+        const stopped = stoppedByClosedWorld(target, reason, origin, reachable);
+        let message = `The page did not load, because a redirect from ${from} to ${to} failed (${reason}).`;
+        if (verdict === "replied") {
+          message = `The page did not load, because a redirect from ${from} took it to ${to}, which has a reply that the browser could not use, since it follows redirects by itself (${reason}). The request finding says more.`;
+        } else if (stopped && live && isAppElsewhere(target, origin)) {
+          message = `The page did not load, because a redirect from ${from} took it to ${to}, the same site at another address, which ra does not count as the app (${reason}). Look at ${target.origin} instead.`;
+        } else if (stopped && verdict === "blocked") {
+          message = `The page did not load, because a redirect from ${from} took it to ${to}, which its world blocks (${reason}).`;
+        } else if (stopped && verdict === "unexpected") {
+          message = `The page did not load, because a redirect from ${from} sent it outside its world, to ${to} (${reason}). The outside finding says more.`;
+        }
+        add("load", message);
       }
     }
 
@@ -533,6 +545,14 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
         const from = brief(first.via, origin);
         const what = first.type === "document" ? "the page" : `the page's request for ${ASKED_FOR[first.type] ?? "something"}`;
         if (first.reached !== true) {
+          const target = new URL(first.url);
+          if (live && isAppElsewhere(target, origin)) {
+            add(
+              "outside",
+              `A redirect from ${from} tried to take ${what} to ${brief(first.url, origin)}${more}. That is the same site at another address, which ra does not count as the app, so it was stopped. Look at ${target.origin} instead.`,
+            );
+            continue;
+          }
           const fix = replyable(first.via)
             ? `Give ${from} a reply that does not redirect there, or list ${key} under block to stop it quietly, or under allow to let it through.`
             : `List ${key} under block to stop it quietly, or under allow to let it through; no reply stands in for ${from} on a deployment.`;
