@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Styles come only from this site: no style tags, no style attributes. -->
+    <meta http-equiv="Content-Security-Policy" content="style-src 'self'">
+    <title>Strict</title>
+    <link rel="stylesheet" href="site.css">
+  </head>
+  <body>
+    <main>
+      <h1>Strict</h1>
+      <p class="lede">Only this site's stylesheets apply here, so ra must look without adding one of its own.</p>
+      <p class="faint">This grey line is too pale to read comfortably.</p>
+      <div id="card"></div>
+    </main>
+    <script>
+      document.getElementById("card").attachShadow({ mode: "open" }).innerHTML =
+        '<link rel="stylesheet" href="site.css"><p class="faint">So is this one, inside a shadow root.</p>';
+    </script>
+  </body>
+</html>

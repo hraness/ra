@@ -92,6 +92,38 @@ const BARE =
   "*, *::before, *::after { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; -webkit-text-stroke-color: transparent !important; text-decoration-color: transparent !important; }";
 const TALLEST = 12_000;
 
+/**
+ * Takes a picture with the page's text hidden, so that contrast can read what
+ * lies behind each text. The sheet that hides it is a constructed one, adopted
+ * by the document and each open shadow root. Playwright's `style` option adds
+ * a <style> tag instead, which a strict Content-Security-Policy blocks: the
+ * text would stay, and the policy's console error would read as the page's.
+ */
+async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page["screenshot"]>[0]>): Promise<Buffer> {
+  const hidden = await page.evaluateHandle((css) => {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(css);
+    const roots: (Document | ShadowRoot)[] = [];
+    const visit = (root: Document | ShadowRoot) => {
+      roots.push(root);
+      for (const el of root.querySelectorAll("*")) if (el.shadowRoot !== null) visit(el.shadowRoot);
+    };
+    visit(document);
+    for (const root of roots) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+    return { sheet, roots };
+  }, BARE);
+  try {
+    return await page.screenshot(shot);
+  } finally {
+    await hidden
+      .evaluate(({ sheet, roots }) => {
+        for (const root of roots) root.adoptedStyleSheets = root.adoptedStyleSheets.filter((adopted) => adopted !== sheet);
+      })
+      .catch(() => undefined);
+    await hidden.dispose().catch(() => undefined);
+  }
+}
+
 function firstLine(error: unknown): string {
   const text = (error instanceof Error ? error.message : String(error)).replace(/\u001b\[[0-9;]*m/gu, "");
   // Playwright follows its message with a call log; the message is enough.
@@ -364,6 +396,9 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     if (state.clock !== undefined) await page.clock.setFixedTime(state.clock);
     const reached: Reached = { state: state.name, view: view.name, origin, calls };
     let loaded = false;
+    // Where the page's own load was redirected to the same site at another
+    // address, which is then the address to look at.
+    let movedTo: string | null = null;
     try {
       page.once("request", (request) => {
         document = request;
@@ -390,6 +425,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
         if (verdict === "replied") {
           message = `The page did not load, because a redirect from ${from} took it to ${to}, which has a reply that the browser could not use, since it follows redirects by itself (${reason}). The request finding says more.`;
         } else if (stopped && live && isAppElsewhere(target, origin)) {
+          movedTo = last.url();
           message = `The page did not load, because a redirect from ${from} took it to ${to}, the same site at another address, which ra does not count as the app (${reason}). Look at ${target.origin} instead.`;
         } else if (stopped && verdict === "blocked") {
           message = `The page did not load, because a redirect from ${from} took it to ${to}, which its world blocks (${reason}).`;
@@ -492,7 +528,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
           writeFileSync(observation.fullPicture, painted);
         }
         if (inspection.texts.length > 0) {
-          const bare = await page.screenshot({ ...shot, style: BARE });
+          const bare = await pictureWithoutText(page, shot);
           for (const problem of findLowContrast(inspection.texts, decodePng(painted), decodePng(bare))) {
             add(
               "contrast",
@@ -546,16 +582,18 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
         const what = first.type === "document" ? "the page" : `the page's request for ${ASKED_FOR[first.type] ?? "something"}`;
         if (first.reached !== true) {
           const target = new URL(first.url);
-          if (live && isAppElsewhere(target, origin)) {
-            add(
-              "outside",
-              `A redirect from ${from} tried to take ${what} to ${brief(first.url, origin)}${more}. That is the same site at another address, which ra does not count as the app, so it was stopped. Look at ${target.origin} instead.`,
-            );
-            continue;
-          }
           const fix = replyable(first.via)
             ? `Give ${from} a reply that does not redirect there, or list ${key} under block to stop it quietly, or under allow to let it through.`
             : `List ${key} under block to stop it quietly, or under allow to let it through; no reply stands in for ${from} on a deployment.`;
+          if (live && isAppElsewhere(target, origin)) {
+            // Only when the page itself did not load is the other address the one to look at.
+            const advice = first.type === "document" && first.url === movedTo ? `Look at ${target.origin} instead.` : fix;
+            add(
+              "outside",
+              `A redirect from ${from} tried to take ${what} to ${brief(first.url, origin)}${more}. That is the same site at another address, which ra does not count as the app, so it was stopped. ${advice}`,
+            );
+            continue;
+          }
           add(
             "outside",
             `A redirect from ${from} tried to take ${what} to ${brief(first.url, origin)}${more}, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for ${key} cannot answer it. ${fix}`,

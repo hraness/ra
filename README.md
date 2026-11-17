@@ -277,7 +277,7 @@ ra runs on macOS and Linux and is tested with playwright-core 1.58 through 1.65.
 
   Like Playwright, `openBrowser` closes the browser on SIGINT, SIGTERM and SIGHUP, and exits on Ctrl-C. Pass `handleSignals: false` when your script handles those signals itself.
 - `ruleProblem`: what is wrong with a rule, in words, or `null`
-- `observe` and `inspectPage`: a look
+- `observe` and `inspectPage`: a look. When one browser serves several worlds, pass `observe` the same hosts as `reachable`, so that it knows which redirects the browser let through.
 - `compareLooks`: a diff
 
 ## Where it came from

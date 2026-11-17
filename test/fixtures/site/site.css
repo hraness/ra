@@ -69,3 +69,5 @@ footer nav a { display: inline-block; padding: 8px 6px; }
   .cards { grid-template-columns: 1fr; }
   .top nav a { padding: 8px 6px; }
 }
+/* Too pale on purpose, for the strict page, which cannot style itself inline. */
+.faint { color: #b9bdc7; }

@@ -103,6 +103,20 @@ describe("ra check on the fixture site", () => {
     assert.deepEqual(kinds(looks, "untitled", "phone"), ["document", "document"]);
   });
 
+  test("measures contrast under a strict Content-Security-Policy, and logs nothing of its own", () => {
+    const strict = looks.find((look) => look.state === "strict")!;
+    const said = strict.findings.map((finding) => finding.message);
+    assert.deepEqual(kinds(looks, "strict", "desktop"), ["contrast", "contrast"], said.join("\n"));
+    assert.ok(said.some((message) => message.startsWith('"This grey line is too pale')), said.join("\n"));
+    assert.ok(said.some((message) => message.startsWith('"So is this one, inside a shadow root."')), said.join("\n"));
+  });
+
+  test("does not ask a page served as plain text for a title or viewport", () => {
+    assert.deepEqual(kinds(looks, "plain", "phone"), []);
+    const plain = looks.find((look) => look.state === "plain")!;
+    assert.ok(plain.notes.includes("The page is text/plain, not HTML, so ra did not look for a title or a viewport."), plain.notes.join("\n"));
+  });
+
   test("treats an error the world was told to give as the state, and a throwing reply as a finding", () => {
     assert.deepEqual(kinds(looks, "outage", "desktop"), []);
     assert.deepEqual(kinds(looks, "faulty", "desktop"), ["request"]);
@@ -174,7 +188,7 @@ describe("ra look", () => {
   test("says how to name a state that does not exist, and exits 2", async () => {
     const ran = await ra(["look", "nowhere"]);
     assert.equal(ran.status, 2);
-    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, broken, untitled, outage, faulty, leave, detours/u);
+    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, broken, untitled, strict, plain, outage, faulty, leave, detours\./u);
   });
 });
 
@@ -326,8 +340,11 @@ export default defineConfig({
       const path = request.url ?? "/";
       seen.push(path);
       const to = redirects[path];
-      // A deployment that sends its pages to one address, here with www.
+      // A deployment that sends its pages to one address, here with www, and
+      // a page that loads with one script from there.
       if (path === "/moved") response.writeHead(301, { location: `http://www.${request.headers.host}/` }).end();
+      else if (path === "/www.js") response.writeHead(301, { location: `http://www.${request.headers.host}${path}` }).end();
+      else if (path === "/loads") response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(html("Loads", '<script src="/www.js"></script>'));
       else if (to !== undefined) response.writeHead(302, { location: to }).end();
       else if (path.endsWith(".js")) response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end("");
       else response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(html("Deployed", Object.keys(redirects).map((script) => `<script src="${script}"></script>`).join("")));
@@ -376,6 +393,17 @@ export default defineConfig({
       assert.equal(
         away!.findings[1]!.message,
         `A redirect from /moved tried to take the page to ${there}/. That is the same site at another address, which ra does not count as the app, so it was stopped. Look at ${there} instead.`,
+      );
+
+      // When the page loads, the other address is not the one to look at: one script from there gets the usual advice.
+      const loads = await ra(["look", `http://app.localhost:${port}/loads`, "--json"], project);
+      assert.equal(loads.status, 0, loads.err);
+      const [stays] = (JSON.parse(loads.out) as { looks: Observation[] }).looks;
+      assert.deepEqual(
+        stays!.findings.map((finding) => finding.message),
+        [
+          `A redirect from /www.js tried to take the page's request for a script to ${there}/www.js. That is the same site at another address, which ra does not count as the app, so it was stopped. List www.app.localhost:${port} under block to stop it quietly, or under allow to let it through; no reply stands in for /www.js on a deployment.`,
+        ],
       );
     } finally {
       deployment.closeAllConnections();
