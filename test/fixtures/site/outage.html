@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — Status</title>
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Service status</h1>
+      <p id="status">Checking…</p>
+    </main>
+    <script>
+      const status = document.getElementById("status");
+      fetch("/api/status")
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
+        .then((body) => (status.textContent = `All systems ${body.state}.`))
+        .catch(() => (status.textContent = "Something went wrong. Try again in a minute."));
+    </script>
+  </body>
+</html>

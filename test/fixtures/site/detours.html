@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — Detours</title>
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Detours</h1>
+      <p id="status">Loading…</p>
+    </main>
+    <script>
+      // The world answers both requests with a redirect out of the app.
+      Promise.allSettled([fetch("/track", { method: "POST", body: "{}" }), fetch("/avatar").then((response) => response.json())]).then(() => {
+        document.getElementById("status").textContent = "Done.";
+      });
+    </script>
+  </body>
+</html>

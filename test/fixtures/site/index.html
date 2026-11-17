@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — Home</title>
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/">Fixture</a>
+      <nav aria-label="Main">
+        <a href="/tricky">Tricky</a>
+        <a href="/broken">Broken</a>
+        <a href="/app">App</a>
+      </nav>
+    </header>
+    <main>
+      <h1>A page with nothing wrong</h1>
+      <p class="lede">This page is the control. Whatever ra reports here is a false alarm, at any width and in either colour scheme.</p>
+      <p><a class="button" href="/app">Open the app</a></p>
+      <h2>Three things</h2>
+      <ul class="cards">
+        <li class="card"><h3>Real browser</h3><p>The page is laid out by the engine people use.</p></li>
+        <li class="card"><h3>Fake world</h3><p>Every request that leaves is answered by name.</p></li>
+        <li class="card"><h3>Words, not pixels</h3><p>What is wrong is said in a sentence.</p></li>
+      </ul>
+      <h2>A picture</h2>
+      <p><img src="/ok.png" alt="A soft gradient" width="240" height="160" /></p>
+      <h2>A form</h2>
+      <form action="/" method="get">
+        <p><label for="email">Email</label><br /><input id="email" name="email" type="email" autocomplete="email" style="font: inherit; padding: 10px; width: min(100%, 320px)" /></p>
+        <p><label><input type="checkbox" name="news" /> Send me news</label></p>
+        <p><button class="button" type="submit">Sign up</button></p>
+      </form>
+    </main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/">Home</a>
+        <a href="/tricky">Tricky</a>
+        <a href="/broken">Broken</a>
+      </nav>
+      <p>Made for tests. Read <a href="/tricky">the tricky page</a> next.</p>
+    </footer>
+  </body>
+</html>

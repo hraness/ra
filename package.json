@@ -1,0 +1,50 @@
+{
+  "name": "@hraness/ra",
+  "version": "0.1.0",
+  "description": "Look at an app's interface the way a person would — a real browser, a fake world — and say in words what is wrong. Made for coding agents.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hraness/ra.git"
+  },
+  "homepage": "https://github.com/hraness/ra#readme",
+  "bugs": "https://github.com/hraness/ra/issues",
+  "keywords": ["ui", "playwright", "agents", "browser", "accessibility", "layout", "visual-review"],
+  "bin": {
+    "ra": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "skills", "docs"],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "packageManager": "bun@1.3.14",
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/unit.test.ts",
+    "test:browser": "node --test --test-concurrency=1 test/browser.test.ts",
+    "check": "bun run typecheck && bun run test && bun run build && node dist/cli.js --version"
+  },
+  "peerDependencies": {
+    "playwright-core": ">=1.58"
+  },
+  "peerDependenciesMeta": {
+    "playwright-core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "24",
+    "playwright-core": "1.65.0",
+    "typescript": "6.0.3"
+  }
+}
