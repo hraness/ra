@@ -120,6 +120,16 @@ describe("views and config", () => {
     assert.ok("GET /api/inbox" in byName.empty!.world.replies);
   });
 
+  test("turns a state's scripts off without making it local, and takes only true or false for it", () => {
+    const project = readConfig({ states: { bare: { url: "/", javascript: false } } }, scratch);
+    assert.equal(project.states[0]!.javascript, false);
+    assert.equal(project.states[0]!.local, false);
+    assert.throws(
+      () => readConfig({ states: { bare: { url: "/", javascript: "false" } } } as never, scratch),
+      /State "bare" has javascript set to "false"; it takes true or false\./u,
+    );
+  });
+
   test("refuses a rule or an answer it cannot use when the config loads, and says how to write it", () => {
     const load = (world: object) => () => readConfig({ world, states: { home: "/" } } as never, scratch);
     assert.throws(load({ replies: { "get /api/me": { json: {} } } }), /^ConfigError: world\.replies: "get \/api\/me" needs its method in capitals, as in "GET \/api\/me"\.$/u);

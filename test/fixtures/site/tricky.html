@@ -27,10 +27,38 @@
       .wide { overflow-x: auto; }
       .wide table { min-width: 720px; }
       button:disabled { color: #9aa0ad; background: var(--wash); border: 1px solid var(--line); padding: 10px 14px; border-radius: 8px; font: inherit; }
+      /* Skip links clipped to nothing at full size, under the sticky header until they have focus. */
+      .skip-clip, .skip-path { position: fixed; top: 10px; left: 12px; padding: 8px 12px; background: var(--ink); color: var(--paper); }
+      .skip-clip { clip: rect(0 0 0 0); }
+      .skip-path { clip-path: inset(0 0 100% 0); }
+      .skip-clip:focus, .skip-path:focus { clip: auto; clip-path: none; z-index: 3; }
+      /* Rows sized for a finger, and tighter for a mouse. A picture of a touch view must keep the finger's layout. */
+      .rows { margin: 0 0 32px; padding: 0; list-style: none; }
+      .rows a { display: flex; align-items: center; min-height: 44px; color: inherit; text-decoration: none; }
+      @media (hover: hover) and (pointer: fine) { .rows a { min-height: 28px; } }
+      .after-rows { margin: 0; font-size: 20px; line-height: 28px; }
+      .after-rows + p { margin: 12px 0 24px; }
+      .start { display: inline-flex; align-items: center; height: 56px; padding: 0 24px; border-radius: 28px; background: var(--ink); color: var(--paper); text-decoration: none; }
+      /* A picture drawn with text: its words are part of the picture, which has a name of its own. */
+      .mockup { max-width: 320px; padding: 16px; border-radius: 12px; background: #e8e8e8; color: #16181d; }
+      .mockup p { margin: 0 0 8px; }
+      .mockup s { color: #ababb0; }
+      .mockup .chip { display: inline-block; width: 52px; overflow: hidden; white-space: nowrap; vertical-align: top; }
+      /* A line drawn larger, with a word in a box of its own that hides its overflow. */
+      .larger { width: max-content; margin: 0 0 40px; transform: scale(2); transform-origin: 0 0; }
+      .larger span { display: inline-block; overflow: hidden; vertical-align: top; }
+      /* A cover that a pointer can press, hidden from screen readers, beside the named control. */
+      .cover { display: block; width: 100%; max-width: 320px; height: 96px; margin-bottom: 12px; border: 0; border-radius: 12px; background: linear-gradient(120deg, #0b2a6f, #3a0f6b); cursor: pointer; }
+      /* A menu the reader has just opened, dark and see-through, over links and text; its foot is empty. */
+      .menu-host { position: relative; }
+      .menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 1; min-width: 240px; padding: 4px 4px 48px; border-radius: 8px; background: rgb(27 29 34 / 0.9); color: #f3f4f7; backdrop-filter: blur(1px); }
+      .menu [role="menuitemradio"] { padding: 8px 12px; }
     </style>
   </head>
   <body>
     <a class="skip" href="#content">Skip to content</a>
+    <a class="skip-clip" href="#content">Skip to the content</a>
+    <a class="skip-path" href="#content">Skip to the page</a>
     <header class="top">
       <a class="brand" href="/">Fixture</a>
       <nav aria-label="Main">
@@ -91,6 +119,47 @@
 
       <h2>Links in a sentence</h2>
       <p>Read <a href="/">the home page</a>, then <a href="/broken">the broken page</a>, and compare what <a href="/tricky">this page</a> reports with both of them.</p>
+
+      <h2>Rows sized for touch</h2>
+      <ol class="rows">
+        <li><a href="/">1 First row</a></li>
+        <li><a href="/">2 Second row</a></li>
+        <li><a href="/">3 Third row</a></li>
+        <li><a href="/">4 Fourth row</a></li>
+        <li><a href="/">5 Fifth row</a></li>
+        <li><a href="/">6 Sixth row</a></li>
+        <li><a href="/">7 Seventh row</a></li>
+      </ol>
+      <h3 class="after-rows">Ready to start</h3>
+      <p>One step is the whole setup.</p>
+      <a class="start" href="/">Start now</a>
+
+      <h2>A picture drawn with text</h2>
+      <div class="mockup" role="img" aria-label="A transcript with a filler word struck out, under a label for the walk">
+        <p>So <s>um,</s> the walk starts at the harbour.</p>
+        <span class="chip">Coast walk</span>
+      </div>
+
+      <h2>A line drawn larger</h2>
+      <p class="larger">Next: <span>coast,</span> home.</p>
+
+      <h2>A second way in for the pointer</h2>
+      <button class="cover" type="button" aria-hidden="true" tabindex="-1"></button>
+      <button class="button" type="button">Play the tour</button>
+
+      <h2>A menu that is open</h2>
+      <div class="menu-host">
+        <button class="button" type="button" aria-haspopup="menu" aria-expanded="true" aria-controls="sort-menu">Sort by</button>
+        <div class="menu" role="menu" id="sort-menu" aria-label="Sort by">
+          <div role="menuitemradio" aria-checked="true" tabindex="-1">Newest first</div>
+          <div role="menuitemradio" aria-checked="false" tabindex="-1">Oldest first</div>
+          <div role="menuitemradio" aria-checked="false" tabindex="-1">Most read</div>
+        </div>
+      </div>
+      <p><a href="/">First result</a></p>
+      <p><a href="/broken">Second result</a></p>
+      <p>Third result</p>
+      <p>A fourth, in plain text.</p>
     </main>
     <footer>
       <nav aria-label="Footer">

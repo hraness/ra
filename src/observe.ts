@@ -100,7 +100,7 @@ const TALLEST = 12_000;
  * text would stay, and the policy's console error would read as the page's.
  */
 async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page["screenshot"]>[0]>): Promise<Buffer> {
-  const hidden = await page.evaluateHandle((css) => {
+  const hidden = await bounded(page.evaluateHandle((css) => {
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
     const roots: (Document | ShadowRoot)[] = [];
@@ -111,15 +111,18 @@ async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page[
     visit(document);
     for (const root of roots) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
     return { sheet, roots };
-  }, BARE);
+  }, BARE), SHORT, "busy", STOPPED);
   try {
     return await page.screenshot(shot);
   } finally {
-    await hidden
-      .evaluate(({ sheet, roots }) => {
+    await bounded(
+      hidden.evaluate(({ sheet, roots }) => {
         for (const root of roots) root.adoptedStyleSheets = root.adoptedStyleSheets.filter((adopted) => adopted !== sheet);
-      })
-      .catch(() => undefined);
+      }),
+      SHORT,
+      "busy",
+      STOPPED,
+    ).catch(() => undefined);
     await hidden.dispose().catch(() => undefined);
   }
 }
@@ -194,6 +197,124 @@ async function holdStill(cap: number): Promise<boolean> {
   return left() <= 0;
 }
 
+/* v8 ignore next 5 -- runs in the page */
+/** Waits for the fonts alone, for a page whose scripts are off: it cannot change, and timers never fire in it. */
+async function fontsLoaded(): Promise<boolean> {
+  await document.fonts.ready;
+  return false;
+}
+
+/* v8 ignore next 45 -- runs in the page */
+/**
+ * Holds every media rule and sheet that asks about hover or pointer to what it
+ * matches now, and returns what it changed so it can be put back.
+ */
+function pinPointerMedia(): Array<[MediaList, string]> {
+  const FEATURES = /(?:^|[^\w-])(?:any-)?(?:hover|pointer)\b/u;
+  const pinned: Array<[MediaList, string]> = [];
+  const seen = new Set<CSSStyleSheet>();
+  const hold = (media: MediaList | null | undefined) => {
+    if (!media) return;
+    const text = media.mediaText;
+    if (!FEATURES.test(text)) return;
+    try {
+      const now = matchMedia(text).matches ? "all" : "not all";
+      media.mediaText = now;
+      pinned.push([media, text]);
+    } catch {
+      // A list that cannot be written is left as it is.
+    }
+  };
+  const rulesOf = (list: CSSRuleList) => {
+    for (const rule of Array.from(list)) {
+      if (rule instanceof CSSMediaRule) hold(rule.media);
+      if (rule instanceof CSSImportRule) {
+        hold(rule.media);
+        if (rule.styleSheet) sheetOf(rule.styleSheet);
+      }
+      if ("cssRules" in rule) rulesOf((rule as CSSGroupingRule).cssRules);
+    }
+  };
+  const sheetOf = (sheet: CSSStyleSheet) => {
+    if (seen.has(sheet)) return;
+    seen.add(sheet);
+    hold(sheet.media);
+    let list: CSSRuleList;
+    try {
+      list = sheet.cssRules;
+    } catch {
+      return; // A sheet from another origin keeps its rules to itself.
+    }
+    rulesOf(list);
+  };
+  const visit = (root: Document | ShadowRoot) => {
+    for (const sheet of Array.from(root.styleSheets)) sheetOf(sheet);
+    for (const sheet of root.adoptedStyleSheets) sheetOf(sheet);
+    for (const el of Array.from(root.querySelectorAll("*"))) if (el.shadowRoot !== null) visit(el.shadowRoot);
+  };
+  visit(document);
+  return pinned;
+}
+
+/**
+ * Takes a picture of a touch view in the layout ra measured. While Chromium
+ * captures beyond the viewport it turns touch emulation off, so hover and
+ * pointer media would match a mouse and the picture would show another layout.
+ * The rules that ask are held to what they match now until the picture is taken.
+ */
+async function inTouchLayout<T>(page: Page, touch: boolean, take: () => Promise<T>): Promise<T> {
+  if (!touch) return take();
+  const held = await bounded(page.evaluateHandle(pinPointerMedia), SHORT, "busy", STOPPED).catch(() => null);
+  try {
+    return await take();
+  } finally {
+    if (held !== null) {
+      await bounded(
+        held.evaluate((list) => {
+          for (const [media, text] of list) media.mediaText = text;
+        }),
+        SHORT,
+        "busy",
+        STOPPED,
+      ).catch(() => undefined);
+      await held.dispose().catch(() => undefined);
+    }
+  }
+}
+
+/** A part of a look that did not finish in time. The look stops there and says so. */
+class Overdue extends Error {
+  readonly kind: string;
+  constructor(kind: string, message: string) {
+    super(message);
+    this.kind = kind;
+  }
+}
+
+/**
+ * Waits for work, but no longer than `ms`: the page or the state's own code
+ * may never answer, and one look must not hang the run. Work given up on is
+ * left to fail quietly when its context closes.
+ */
+async function bounded<T>(work: Promise<T>, ms: number, kind: string, message: string): Promise<T> {
+  work.catch(() => undefined);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Overdue(kind, message)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** How long a quick call to the page may take: putting a picture's sheet in place, say. */
+const SHORT = 10_000;
+const STOPPED = `The page stopped answering for ${SHORT / 1000}s, so the look stopped there.`;
+
 const AsyncFunction = Object.getPrototypeOf(async () => undefined).constructor as new (...names: string[]) => (
   ...values: unknown[]
 ) => Promise<unknown>;
@@ -208,6 +329,8 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
   const add = (kind: string, message: string, where = "", selector = "") => findings.push({ kind, message, where, selector });
   const address = new URL(state.url, `${origin}/`).href;
   const host = new URL(origin).hostname;
+  const scripts = state.javascript !== false;
+  const within = `${project.timeout / 1000}s`;
 
   const context = await browser.newContext({
     viewport: { width: view.width, height: view.height },
@@ -217,6 +340,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     colorScheme: view.scheme,
     reducedMotion: view.motion ? "no-preference" : "reduce",
     serviceWorkers: "block",
+    javaScriptEnabled: scripts,
     locale: project.locale,
     timezoneId: project.timezone,
     storageState: {
@@ -388,7 +512,14 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
           }
           await new Promise((done) => setTimeout(done, 40));
         }
-        stillChanging = await page.evaluate(holdStill, Math.max(300, Math.min(2500, deadline - performance.now()))).catch(() => false);
+        // With scripts off, nothing on the page can change it, and no timer of
+        // ra's would ever fire in it: only the fonts are waited for.
+        const cap = Math.max(300, Math.min(2500, deadline - performance.now()));
+        const still = scripts ? page.evaluate(holdStill, cap) : page.evaluate(fontsLoaded);
+        stillChanging = await bounded(still, project.timeout, "busy", `The page stopped answering for ${within}, so the look stopped there.`).catch((error: unknown) => {
+          if (error instanceof Overdue) throw error;
+          return false;
+        });
         if (pending.size === 0) break;
       }
     };
@@ -437,108 +568,159 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     }
 
     if (loaded) {
-      await settle();
-      if (state.ready !== undefined) {
-        try {
-          await page.locator(state.ready).first().waitFor({ state: "visible", timeout: project.timeout });
-        } catch {
-          add("expect", `The page never showed its ready mark, ${state.ready}.`);
-        }
-      }
-      if (state.steps !== undefined) {
-        try {
-          await state.steps(page, reached);
-        } catch (error) {
-          add("steps", `The steps for this state failed: ${firstLine(error)}`);
-        }
-        await settle();
-      }
-      if (options.then !== undefined) {
-        try {
-          const returned = await new AsyncFunction("page", "reached", options.then)(page, reached);
-          if (returned !== undefined) observation.returned = typeof returned === "string" ? returned : JSON.stringify(returned, null, 2);
-        } catch (error) {
-          add("steps", `The --then code failed: ${firstLine(error)}`);
-        }
-        await settle();
-      }
-      observation.url = page.url();
-
-      const target = options.scope === undefined ? page.locator("body") : page.locator(options.scope).first();
-      if (options.scope !== undefined && (await target.count()) === 0) {
-        add("expect", `Nothing on the page matches ${options.scope}.`);
-      } else {
-        try {
-          const outline = outlineOf(await target.ariaSnapshot({ timeout: 10_000 }), { origin, ...(options.lines === undefined ? {} : { lines: options.lines }) });
-          observation.outline = outline.lines;
-          observation.outlineFull = outline.full;
-        } catch (error) {
-          notes.push(`The outline could not be read: ${firstLine(error)}`);
-        }
-      }
-      const picture = options.directory === undefined ? null : join(options.directory, `${state.name}.${view.name}.png`);
-      if (options.directory !== undefined) mkdirSync(options.directory, { recursive: true });
-      if (picture !== null) {
-        try {
-          if (options.scope === undefined) await page.screenshot({ path: picture, scale: "css", animations: "disabled", caret: "hide" });
-          else await target.screenshot({ path: picture, scale: "css", animations: "disabled", caret: "hide", timeout: 10_000 });
-          observation.picture = picture;
-        } catch (error) {
-          notes.push(`No picture was taken: ${firstLine(error)}`);
-        }
-      }
-
-      for (const wanted of state.see ?? []) {
-        try {
-          await page.getByText(wanted).first().waitFor({ state: "visible", timeout: 3000 });
-        } catch {
-          add("expect", `Expected to see ${typeof wanted === "string" ? JSON.stringify(wanted) : String(wanted)}, and it is not visible.`);
-        }
-      }
-      if (state.expect !== undefined) {
-        try {
-          await state.expect(page, reached);
-        } catch (error) {
-          add("expect", firstLine(error));
-        }
-      }
-
-      const inspectOptions: InspectOptions = {
-        scope: options.scope ?? null,
-        touch: view.touch,
-        tapTarget: project.tapTarget,
-        scroll: state.scroll ?? (state.steps === undefined && options.then === undefined),
-      };
+      // A part that never finishes stops the look: what it found so far and
+      // what the page asked for are still reported, and the context is closed.
       try {
-        const inspection = await page.evaluate(inspectPage, inspectOptions);
         await settle();
-        observation.title = inspection.title;
-        observation.page = inspection.page;
-        observation.regions = inspection.regions;
-        observation.boxes = inspection.boxes;
-        findings.push(...inspection.findings);
-        notes.push(...inspection.notes);
-
-        const height = Math.min(inspection.page.height, TALLEST);
-        if (inspection.page.height > TALLEST) notes.push(`The page is ${inspection.page.height}px tall; pictures and contrast cover its first ${TALLEST}px.`);
-        const shot = { fullPage: true, scale: "css", animations: "disabled", caret: "hide", clip: { x: 0, y: 0, width: inspection.page.width, height } } as const;
-        const painted = await page.screenshot(shot);
-        if (options.directory !== undefined) {
-          observation.fullPicture = join(options.directory, `${state.name}.${view.name}.full.png`);
-          writeFileSync(observation.fullPicture, painted);
-        }
-        if (inspection.texts.length > 0) {
-          const bare = await pictureWithoutText(page, shot);
-          for (const problem of findLowContrast(inspection.texts, decodePng(painted), decodePng(bare))) {
-            add(
-              "contrast",
-              `"${problem.sample.text}" has ${problem.ratio}:1 contrast (${problem.text} on ${problem.background}); text this size needs ${problem.needs}:1.`,
-              problem.sample.where,
-            );
+        if (state.ready !== undefined) {
+          try {
+            await page.locator(state.ready).first().waitFor({ state: "visible", timeout: project.timeout });
+          } catch {
+            add("expect", `The page never showed its ready mark, ${state.ready}.`);
           }
         }
+        if (state.steps !== undefined) {
+          try {
+            const steps = state.steps;
+            await bounded(
+              Promise.resolve().then(() => steps(page, reached)),
+              project.timeout,
+              "steps",
+              `The steps for this state did not finish within ${within}, so the look stopped there.`,
+            );
+          } catch (error) {
+            if (error instanceof Overdue) throw error;
+            add("steps", `The steps for this state failed: ${firstLine(error)}`);
+          }
+          await settle();
+        }
+        if (options.then !== undefined) {
+          try {
+            const code = new AsyncFunction("page", "reached", options.then);
+            const returned = await bounded(
+              Promise.resolve().then(() => code(page, reached)),
+              project.timeout,
+              "steps",
+              `The --then code did not finish within ${within}, so the look stopped there.`,
+            );
+            if (returned !== undefined) observation.returned = typeof returned === "string" ? returned : JSON.stringify(returned, null, 2);
+          } catch (error) {
+            if (error instanceof Overdue) throw error;
+            add("steps", `The --then code failed: ${firstLine(error)}`);
+          }
+          await settle();
+        }
+        observation.url = page.url();
+
+        const target = options.scope === undefined ? page.locator("body") : page.locator(options.scope).first();
+        if (options.scope !== undefined && (await bounded(target.count(), SHORT, "busy", STOPPED)) === 0) {
+          add("expect", `Nothing on the page matches ${options.scope}.`);
+        } else {
+          try {
+            const outline = outlineOf(await target.ariaSnapshot({ timeout: 10_000 }), { origin, ...(options.lines === undefined ? {} : { lines: options.lines }) });
+            observation.outline = outline.lines;
+            observation.outlineFull = outline.full;
+          } catch (error) {
+            notes.push(`The outline could not be read: ${firstLine(error)}`);
+          }
+        }
+        const picture = options.directory === undefined ? null : join(options.directory, `${state.name}.${view.name}.png`);
+        if (options.directory !== undefined) mkdirSync(options.directory, { recursive: true });
+        if (picture !== null) {
+          try {
+            await inTouchLayout(page, view.touch, () =>
+              options.scope === undefined
+                ? page.screenshot({ path: picture, scale: "css", animations: "disabled", caret: "hide" })
+                : target.screenshot({ path: picture, scale: "css", animations: "disabled", caret: "hide", timeout: 10_000 }),
+            );
+            observation.picture = picture;
+          } catch (error) {
+            if (error instanceof Overdue) throw error;
+            notes.push(`No picture was taken: ${firstLine(error)}`);
+          }
+        }
+
+        for (const wanted of state.see ?? []) {
+          try {
+            await page.getByText(wanted).first().waitFor({ state: "visible", timeout: 3000 });
+          } catch {
+            add("expect", `Expected to see ${typeof wanted === "string" ? JSON.stringify(wanted) : String(wanted)}, and it is not visible.`);
+          }
+        }
+        if (state.expect !== undefined) {
+          try {
+            const expect = state.expect;
+            await bounded(
+              Promise.resolve().then(() => expect(page, reached)),
+              project.timeout,
+              "expect",
+              `The expect for this state did not finish within ${within}, so the look stopped there.`,
+            );
+          } catch (error) {
+            if (error instanceof Overdue) throw error;
+            add("expect", firstLine(error));
+          }
+        }
+
+        const inspectOptions: InspectOptions = {
+          scope: options.scope ?? null,
+          touch: view.touch,
+          tapTarget: project.tapTarget,
+          scroll: state.scroll ?? (state.steps === undefined && options.then === undefined),
+          scripts,
+        };
+        try {
+          const inspection = await bounded(
+            page.evaluate(inspectPage, inspectOptions),
+            project.timeout,
+            "busy",
+            `The page stopped answering: ra's checks on it did not finish within ${within}, so the look stopped there.`,
+          );
+          await settle();
+          observation.title = inspection.title;
+          observation.page = inspection.page;
+          observation.regions = inspection.regions;
+          observation.boxes = inspection.boxes;
+          findings.push(...inspection.findings);
+          notes.push(...inspection.notes);
+
+          const height = Math.min(inspection.page.height, TALLEST);
+          if (inspection.page.height > TALLEST) notes.push(`The page is ${inspection.page.height}px tall; pictures and contrast cover its first ${TALLEST}px.`);
+          const shot = { fullPage: true, scale: "css", animations: "disabled", caret: "hide", clip: { x: 0, y: 0, width: inspection.page.width, height } } as const;
+          // Both pictures are taken in the layout that was measured. The first is
+          // kept even when the second cannot be taken.
+          let failed: unknown;
+          const [painted, bare] = await inTouchLayout(page, view.touch, async () => {
+            const first = await page.screenshot(shot);
+            const second = inspection.texts.length === 0
+              ? null
+              : await pictureWithoutText(page, shot).catch((error: unknown) => {
+                failed = error;
+                return null;
+              });
+            return [first, second] as const;
+          });
+          if (options.directory !== undefined) {
+            observation.fullPicture = join(options.directory, `${state.name}.${view.name}.full.png`);
+            writeFileSync(observation.fullPicture, painted);
+          }
+          if (failed !== undefined) throw failed;
+          if (bare !== null) {
+            for (const problem of findLowContrast(inspection.texts, decodePng(painted), decodePng(bare))) {
+              add(
+                "contrast",
+                `"${problem.sample.text}" has ${problem.ratio}:1 contrast (${problem.text} on ${problem.background}); text this size needs ${problem.needs}:1.`,
+                problem.sample.where,
+              );
+            }
+          }
+        } catch (error) {
+          if (error instanceof Overdue) throw error;
+          notes.push(`The page could not be inspected: ${firstLine(error)}`);
+        }
       } catch (error) {
-        notes.push(`The page could not be inspected: ${firstLine(error)}`);
+        if (!(error instanceof Overdue)) throw error;
+        add(error.kind, error.message);
       }
 
       const expected = state.status;

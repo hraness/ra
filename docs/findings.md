@@ -22,7 +22,9 @@ Text or a control is clipped by a box with `overflow: hidden` or `clip`, so part
 
 - Left alone: an ellipsis (`text-overflow` other than `clip`) and a line clamp (`-webkit-line-clamp`), which are clipping on purpose.
 - Left alone: anything inside a box that scrolls, since it can be scrolled into view.
-- Left alone: screen-reader-only text (tiny and clipped, or `clip-path: inset(50%)`).
+- Left alone: screen-reader-only text: tiny and clipped, or clipped to nothing by `clip` or `clip-path` at any size, as a skip link is until it has focus.
+- Left alone: text inside a picture (`role="img"`), which is read as one image by its label.
+- A box that is scaled up or down is measured as drawn, in the same coordinates as the text in it.
 
 ### `spill`
 
@@ -34,7 +36,7 @@ Text runs out of its box: past the right or left edge, or below the bottom, with
 
 Two pieces of text are painted on top of each other in the same layer.
 
-- Text on a different surface does not count: inside an absolutely positioned, fixed or transformed box, or a box with its own background. Neither does text nested inside the other.
+- Text on a different surface does not count: inside an absolutely positioned, fixed or transformed box, or a box with its own background. Neither does text nested inside the other, or text inside a picture (`role="img"`).
 - At most five pairs are reported per look.
 
 ### `covered`
@@ -42,6 +44,8 @@ Two pieces of text are painted on top of each other in the same layer.
 Something sits over the centre of a control, so a click or tap there would land on that instead. ra hit-tests each control in view while it scrolls through the page.
 
 - Left alone: a label covering its own input; checkbox, radio, file and range inputs, which custom controls often draw over on purpose; and controls that are nearly transparent.
+- Left alone: controls under an open menu, listbox, dialog or popover, or under the panel that an expanded control has opened. Covering them is what it is there for.
+- Left alone: a skip link clipped to nothing until it has focus.
 - An overlay is named as a whole, not by the paragraph inside it that happened to be hit.
 
 ## Reading and reaching
@@ -51,6 +55,10 @@ Something sits over the centre of a control, so a click or tap there would land 
 Text is too pale against what is really behind it, by the WCAG AA ratios: 4.5:1, or 3:1 for large text (24px, or 18.66px bold).
 
 ra photographs the page twice, once as it is and once with every glyph made transparent. The second picture is the true background under each line of text, whatever painted it: a gradient, a photo, an overlay or a blend. Contrast is computed from those pixels, so it is right where CSS-based checkers have to guess. The glyphs are hidden by a stylesheet that the page's Content-Security-Policy does not govern, so a strict policy neither keeps them showing nor logs an error of ra's.
+
+- Left alone: text that something else lies over, such as an open menu or a panel, and the part of a line that its scrolling box shows none of.
+- Left alone: text inside a picture (`role="img"`), whose look is the picture's business.
+- On touch views, both pictures keep the layout for a finger that ra measured, although the browser matches a mouse while it photographs beyond the screen.
 
 ### `small-target`
 
@@ -63,6 +71,7 @@ On touch views, a control is smaller than `tapTarget` (24px by default) **and** 
 A control has no accessible name, or an image has no `alt` attribute.
 
 - Images with `alt=""`, `role="presentation"` or inside `aria-hidden="true"` are decoration and are fine.
+- Controls inside `aria-hidden="true"` are not announced at all, so they need no name either; the outline leaves them out too.
 - Controls that render through a shadow root or a slot are not judged, since their name may live there.
 
 ## Content
@@ -107,9 +116,13 @@ The page did not load: a network error, a timeout, or a navigation the closed wo
 
 Requests were still open when the settle time ran out (5 seconds by default). Usually a long poll, a stream or a request that never answers. Give it a reply in the world, or block it.
 
+Or the page stopped answering: ra's own checks on it did not finish within the project's `timeout` (30 seconds by default), usually because a script keeps the page busy. The look stops there, and the run goes on with the next one.
+
 ### `expect` and `steps`
 
 A state's `ready` selector never showed, a `see` text is not visible, its `expect` threw, or the `--in` selector matched nothing (`expect`). Its `steps` threw, or the `--then` code threw (`steps`). These are your own checks, and the message carries your error.
+
+Steps, `--then` code or an `expect` that has not finished within the project's `timeout` (30 seconds by default) is reported the same way. The look stops there, its browser context is closed, and the run goes on with the next look.
 
 ## Accepting a finding
 

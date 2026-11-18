@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
 import { serveStatic, type RunningApp } from "../src/app.ts";
 import type { Observation } from "../src/observe.ts";
+import { decodePng } from "../src/png.ts";
 
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const index = fileURLToPath(new URL("../src/index.ts", import.meta.url));
@@ -82,6 +83,35 @@ describe("ra check on the fixture site", () => {
       assert.deepEqual(kinds(looks, "home", view), [], `home at ${view}`);
       assert.deepEqual(kinds(looks, "tricky", view), [], `tricky at ${view}`);
     }
+  });
+
+  test("finds nothing under an open dialog whose frame scrolls", () => {
+    for (const view of ["desktop", "phone", "phone.dark"]) {
+      const look = looks.find((candidate) => candidate.state === "dialog" && candidate.view === view)!;
+      assert.deepEqual(look.findings.map((finding) => `${finding.kind}: ${finding.message}`), [], `dialog at ${view}`);
+    }
+  });
+
+  test("keeps a touch view's layout in its full picture, where contrast is read", () => {
+    // Chromium matches a mouse while it captures beyond the viewport; the rows
+    // above the button are shorter for a mouse, which would move it up.
+    const look = looks.find((candidate) => candidate.state === "tricky" && candidate.view === "phone")!;
+    const button = look.boxes.find((box) => box.key === 'link "Start now"');
+    assert.ok(button !== undefined && look.fullPicture !== null, look.boxes.map((box) => box.key).join(", "));
+    const picture = decodePng(readFileSync(look.fullPicture));
+    const x = Math.round(button.x + button.width / 2);
+    const y = Math.round(button.y + 6);
+    const at = (y * picture.width + x) * 4;
+    const pixel = [picture.data[at]!, picture.data[at + 1]!, picture.data[at + 2]!];
+    assert.ok(pixel.every((value) => value < 60), `the top of the dark button, at ${x},${y}, is ${pixel.join(",")} in the picture`);
+  });
+
+  test("looks at a page with its scripts off, and checks what it shows then", () => {
+    const look = looks.find((candidate) => candidate.state === "noscript")!;
+    const said = look.findings.map((finding) => `${finding.kind}: ${finding.message}`);
+    assert.deepEqual(kinds(looks, "noscript", "desktop"), ["contrast"], said.join("\n"));
+    assert.match(look.findings[0]!.message, /^"This line shows only when scripts are o…" has 1\.9:1 contrast/u);
+    assert.ok(!look.notes.some((note) => note.includes("never stopped changing")), look.notes.join("\n"));
   });
 
   test("finds every planted problem", () => {
@@ -160,6 +190,34 @@ describe("ra check on the fixture site", () => {
   });
 });
 
+describe("a look that never finishes", () => {
+  test("is stopped at the project's timeout and reported, and the run goes on", async () => {
+    const copy = copySite();
+    writeFileSync(
+      join(copy, "ra.config.ts"),
+      `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({
+  app: { static: "." },
+  views: ["desktop"],
+  timeout: 3000,
+  states: {
+    stuck: { url: "/", steps: () => new Promise(() => {}) },
+    waiting: { url: "/", expect: () => new Promise(() => {}) },
+    home: { url: "/" },
+  },
+});
+`,
+    );
+    const ran = await ra(["check", "--json"], copy);
+    assert.equal(ran.status, 1, ran.err);
+    const looks = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+    const said = (state: string) => looks.find((look) => look.state === state)!.findings.map((finding) => `${finding.kind}: ${finding.message}`);
+    assert.deepEqual(said("stuck"), ["steps: The steps for this state did not finish within 3s, so the look stopped there."]);
+    assert.deepEqual(said("waiting"), ["expect: The expect for this state did not finish within 3s, so the look stopped there."]);
+    assert.deepEqual(said("home"), []);
+  });
+});
+
 describe("ra look", () => {
   test("describes one state at one view, with pictures", async () => {
     const ran = await ra(["look", "home", "--at", "phone", "--json"]);
@@ -196,7 +254,7 @@ describe("ra look", () => {
   test("says how to name a state that does not exist, and exits 2", async () => {
     const ran = await ra(["look", "nowhere"]);
     assert.equal(ran.status, 2);
-    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, broken, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
+    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, dialog, noscript, broken, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
   });
 });
 

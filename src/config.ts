@@ -116,6 +116,12 @@ export interface StateSpec {
   scroll?: boolean;
   /** Whether this state can also be looked at on a deployment. States with a world or steps are local unless marked. */
   live?: boolean;
+  /**
+   * Set false to look at the page with its scripts turned off, as a reader
+   * without JavaScript or a crawler sees it. Every check still runs. It is
+   * still only a page load, so it does not make a state local.
+   */
+  javascript?: boolean;
 }
 
 export interface ViewSpec {
@@ -275,7 +281,7 @@ export function mergeWorlds(base: World | undefined, over: World | undefined): R
 
 const CONFIG_KEYS = ["app", "views", "world", "states", "accept", "tapTarget", "timeout", "settle", "locale", "timezone"];
 const STATE_KEYS = [
-  "url", "note", "world", "storage", "session", "cookies", "clock", "ready", "steps", "see", "expect", "status", "views", "accept", "scroll", "live",
+  "url", "note", "world", "storage", "session", "cookies", "clock", "ready", "steps", "see", "expect", "status", "views", "accept", "scroll", "live", "javascript",
 ];
 const WORLD_KEYS = ["replies", "allow", "block", "upstreams"];
 
@@ -358,6 +364,9 @@ export function readConfig(config: Config, root: string, file: string | null = n
       throw new ConfigError(`State "${name}" needs a url, such as "/pricing".`);
     }
     checkKeys(spec, STATE_KEYS, `State "${name}"`);
+    if (spec.javascript !== undefined && typeof spec.javascript !== "boolean") {
+      throw new ConfigError(`State "${name}" has javascript set to ${JSON.stringify(spec.javascript)}; it takes true or false.`);
+    }
     checkWorld(spec.world, `State "${name}" world`);
     const { world, views: ownViews, accept, ...rest } = spec;
     return {

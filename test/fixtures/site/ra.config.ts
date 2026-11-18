@@ -6,6 +6,19 @@ export default defineConfig({
   states: {
     home: { url: "/", note: "The control: nothing is wrong here." },
     tricky: { url: "/tricky", note: "Deliberate clipping, scrolling and hiding that must not be reported." },
+    // An open modal dialog whose frame scrolls, over a dimmed and blurred page: clean too.
+    dialog: { url: "/dialog", note: "A search dialog, open, with results scrolled out of its frame." },
+    // Scripts off: the page's fallback is what is looked at, and every check still runs.
+    // Text inside <noscript> is out of reach of `see`, so `expect` finds it by CSS.
+    noscript: {
+      url: "/noscript",
+      views: ["desktop"],
+      javascript: false,
+      see: ["Scripts have not run."],
+      expect: async (page) => {
+        if (!(await page.locator("noscript p.faint").isVisible())) throw new Error("The line inside <noscript> is not showing.");
+      },
+    },
     broken: { url: "/broken", note: "One of every problem." },
     untitled: { url: "/untitled", views: ["phone"] },
     // A strict Content-Security-Policy, which ra's own looking must not trip.

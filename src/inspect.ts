@@ -19,6 +19,12 @@ export interface InspectOptions {
   tapTarget: number;
   /** Whether the page may be scrolled through to load and test what is below the first screen. */
   scroll: boolean;
+  /**
+   * Whether the page's scripts run. Defaults to true. With scripts off, the
+   * page calls back nothing, not even ra's own timers and animation frames,
+   * so ra must never wait on it.
+   */
+  scripts?: boolean;
 }
 
 export interface PageFinding {
@@ -76,8 +82,11 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     return { title: doc.title, page: { width: vw, height: vh }, viewport: { width: vw, height: vh }, findings, texts: [], boxes: [], regions: [], notes };
   }
 
-  const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  // With scripts off, a timer or an animation frame never comes back. Layout is
+  // still read on demand, so the checks run without waiting.
+  const scripts = options.scripts !== false;
+  const frame = () => (scripts ? new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) : Promise.resolve());
+  const pause = (ms: number) => (scripts ? new Promise<void>((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
   const squash = (text: string | null | undefined) => (text ?? "").replace(/\s+/g, " ").trim();
   const cut = (text: string, limit: number) => (text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text);
   const px = (value: number) => `${Math.round(value)}px`;
@@ -243,6 +252,38 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     }
     return result;
   };
+  const length = (value: string | undefined, whole: number): number => {
+    if (value === undefined || value === "auto") return NaN;
+    return value.endsWith("%") ? (parseFloat(value) / 100) * whole : /^-?[\d.]+(?:px)?$/.test(value) ? parseFloat(value) : NaN;
+  };
+  /**
+   * Whether `clip` or `clip-path` leaves nothing of the box to see, at any size:
+   * a skip link clipped to an empty rectangle until it has focus, say.
+   */
+  const clippedAway = (style: CSSStyleDeclaration, width: number, height: number): boolean => {
+    const rect = /^rect\((.*)\)$/.exec(style.clip);
+    if (rect && (style.position === "absolute" || style.position === "fixed")) {
+      const [top, right, bottom, left] = rect[1]!.split(/\s*,\s*|\s+/).map((side, index) => {
+        const value = length(side, 0);
+        return Number.isNaN(value) ? [0, width, height, 0][index]! : value;
+      });
+      if (right! - left! <= 0 || bottom! - top! <= 0) return true;
+    }
+    const path = style.clipPath;
+    const inset = /^inset\(([^)]*)\)/.exec(path);
+    if (inset) {
+      const sides = inset[1]!.split(/\s+round\s+/)[0]!.trim().split(/\s+/);
+      const [top, right = top, bottom = top, left = right] = sides;
+      const vertical = length(top, height) + length(bottom, height);
+      const sideways = length(left, width) + length(right, width);
+      if (vertical >= height - 0.5 || sideways >= width - 0.5) return true;
+    }
+    const round = /^(circle|ellipse)\(\s*([^\s)]+)(?:\s+([^\s)]+))?/.exec(path);
+    if (round && round[2] !== "at") {
+      if (length(round[2], width) === 0 || (round[1] === "ellipse" && round[3] !== "at" && length(round[3], height) === 0)) return true;
+    }
+    return false;
+  };
   const readerOnly = new Map<Element, boolean>();
   /** True for text kept on the page for screen readers and hidden from sight. */
   const forReadersOnly = (el: Element | null): boolean => {
@@ -252,7 +293,11 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       const style = cs(el);
       const rect = el.getBoundingClientRect();
       const clipped = style.overflowX !== "visible" || style.clipPath !== "none" || (style.clip !== "auto" && style.clip !== "");
-      result = ((rect.width <= 2 || rect.height <= 2) && clipped) || /inset\(\s*(?:50|100)%/.test(style.clipPath) || forReadersOnly(parentOf(el));
+      result =
+        ((rect.width <= 2 || rect.height <= 2) && clipped)
+        || /inset\(\s*(?:50|100)%/.test(style.clipPath)
+        || (clipped && clippedAway(style, rect.width, rect.height))
+        || forReadersOnly(parentOf(el));
       readerOnly.set(el, result);
     }
     return result;
@@ -351,7 +396,7 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     scrollTo(0);
     await frame();
     const deadline = performance.now() + 3000;
-    while (performance.now() < deadline && Array.from(doc.images).some((image) => !image.complete)) await pause(50);
+    while (scripts && performance.now() < deadline && Array.from(doc.images).some((image) => !image.complete)) await pause(50);
     await frame();
     // Second pass: test each control while it sits near the middle of the screen,
     // where a sticky header or footer has no business covering it.
@@ -394,6 +439,38 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
   }
   /** Whether problems with this element are worth reporting: inside the scope, and not behind an open dialog. */
   const subject = (el: Element): boolean => (!scope || within(scope, el)) && (!modal || within(modal, el));
+  /**
+   * What is open on top of the page: menus, listboxes, dialogs, popovers and
+   * whatever an expanded control has opened. Covering what lies beneath is what
+   * they are for, so neither the controls nor the text under them are judged.
+   */
+  const popups: Element[] = [];
+  const addPopup = (el: Element | null) => {
+    if (el && el !== body && el !== root && !popups.includes(el) && visible(el)) popups.push(el);
+  };
+  const positioned = (el: Element) => /^(?:absolute|fixed)$/.test(cs(el).position);
+  for (const el of Array.from(doc.querySelectorAll('dialog[open], [aria-modal="true"], [popover], [role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"]'))) {
+    if (el.hasAttribute("popover")) {
+      let open = false;
+      try {
+        open = el.matches(":popover-open");
+      } catch {
+        open = false;
+      }
+      if (!open) continue;
+    }
+    addPopup(el);
+  }
+  for (const control of Array.from(doc.querySelectorAll('[aria-expanded="true"], details[open] > summary'))) {
+    const home = control.getRootNode() as Document | ShadowRoot;
+    const ids = `${control.getAttribute("aria-controls") ?? ""} ${control.getAttribute("aria-owns") ?? ""}`.split(/\s+/).filter(Boolean);
+    const targets = ids.map((id) => home.getElementById(id)).filter((el): el is HTMLElement => el !== null);
+    for (const target of targets) addPopup(target);
+    if (targets.length > 0) continue;
+    // Nothing named: the panel it opened is a positioned box beside it.
+    for (let sibling = control.nextElementSibling; sibling; sibling = sibling.nextElementSibling) if (positioned(sibling)) addPopup(sibling);
+  }
+  const inPopupOver = (el: Element, top: Element): boolean => popups.some((popup) => within(popup, top) && !within(popup, el));
 
   // ---- where content is clipped -------------------------------------------------
 
@@ -409,9 +486,17 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     /** Content can be scrolled into view sideways or vertically, so being out of sight is not being cut off. */
     sx: boolean;
     sy: boolean;
+    /** What can be seen right now: the edges of every box that does not show its overflow, scrollers included. */
+    vl: number;
+    vr: number;
+    vt: number;
+    vb: number;
   }
-  const OPEN: Clip = { l: -Infinity, r: Infinity, t: -Infinity, b: Infinity, ol: null, or: null, ot: null, ob: null, sx: false, sy: false };
-  const SCREEN: Clip = { l: 0, r: vw, t: 0, b: vh, ol: root, or: root, ot: root, ob: root, sx: false, sy: false };
+  const OPEN: Clip = {
+    l: -Infinity, r: Infinity, t: -Infinity, b: Infinity, ol: null, or: null, ot: null, ob: null, sx: false, sy: false,
+    vl: -Infinity, vr: Infinity, vt: -Infinity, vb: Infinity,
+  };
+  const SCREEN: Clip = { l: 0, r: vw, t: 0, b: vh, ol: root, or: root, ot: root, ob: root, sx: false, sy: false, vl: 0, vr: vw, vt: 0, vb: vh };
   const holdsFixed = (style: CSSStyleDeclaration) =>
     style.transform !== "none" || style.filter !== "none" || style.perspective !== "none" || /paint|layout|strict|content/.test(style.contain);
   const clips = new Map<Element, Clip>();
@@ -440,9 +525,9 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       const refuses = (value: string) => value === "hidden" || value === "clip";
       // A page that refuses to scroll sideways cuts off whatever is wider than the screen.
       if (!inner && (refuses(cs(body).overflowX) || refuses(cs(root).overflowX))) {
-        clip.l = 0;
+        clip.l = clip.vl = 0;
         clip.ol = body;
-        clip.r = vw;
+        clip.r = clip.vr = vw;
         clip.or = body;
       }
     } else {
@@ -451,11 +536,25 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       const x = style.overflowX;
       const y = style.overflowY;
       if (x !== "visible" || y !== "visible") {
+        // The inside of the box, in the same coordinates as the text in it:
+        // a transform here or further up scales both.
         const rect = el.getBoundingClientRect();
-        const left = rect.left + el.clientLeft;
-        const top = rect.top + el.clientTop;
-        const right = left + el.clientWidth;
-        const bottom = top + el.clientHeight;
+        const width = (el as HTMLElement).offsetWidth;
+        const height = (el as HTMLElement).offsetHeight;
+        const scaleX = width > 0 ? rect.width / width : 1;
+        const scaleY = height > 0 ? rect.height / height : 1;
+        const left = rect.left + el.clientLeft * scaleX;
+        const top = rect.top + el.clientTop * scaleY;
+        const right = left + el.clientWidth * scaleX;
+        const bottom = top + el.clientHeight * scaleY;
+        if (x !== "visible") {
+          clip.vl = Math.max(clip.vl, left);
+          clip.vr = Math.min(clip.vr, right);
+        }
+        if (y !== "visible") {
+          clip.vt = Math.max(clip.vt, top);
+          clip.vb = Math.min(clip.vb, bottom);
+        }
         // A box that hides overflow inside a scrolling one cuts for real, so it
         // clears the "can be scrolled into view" mark the scroller set.
         if (x === "hidden" || x === "clip") {
@@ -500,7 +599,21 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     rects: DOMRect[];
   }
   const runs: Run[] = [];
+  const pictures = new Map<Element, boolean>();
+  /** True for text that is part of a picture (`role="img"`), which is read as one image and named by its label. */
+  const inPicture = (el: Element | null): boolean => {
+    if (!el || el === body || el === root) return false;
+    let result = pictures.get(el);
+    if (result === undefined) {
+      const role = (el.getAttribute("role") ?? "").trim().toLowerCase().split(/\s+/)[0];
+      result = role === "img" || role === "image" || inPicture(parentOf(el));
+      pictures.set(el, result);
+    }
+    return result;
+  };
   const NOT_TEXT = new Set(["script", "style", "noscript", "template", "textarea", "option", "select", "title"]);
+  // With scripts off, what a page puts in <noscript> is what the reader sees.
+  if (!scripts) NOT_TEXT.delete("noscript");
   const range = doc.createRange();
   const readText = (from: Node) => {
     const walker = doc.createTreeWalker(from, NodeFilter.SHOW_TEXT);
@@ -579,7 +692,7 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
   };
 
   for (const run of runs) {
-    if (!subject(run.el)) continue;
+    if (!subject(run.el) || inPicture(run.el)) continue;
     const clip = clipWithin(run.el);
     let below = 0;
     let inSight = 0;
@@ -696,7 +809,7 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
   };
   const lines: Array<{ el: Element; text: string; rect: DOMRect; layer: Element }> = [];
   for (const run of runs) {
-    if (!subject(run.el)) continue;
+    if (!subject(run.el) || inPicture(run.el)) continue;
     const clip = clipWithin(run.el);
     const layer = layerOf(run.el);
     for (const rect of run.rects) {
@@ -774,7 +887,7 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
 
   const coverers = new Map<Element, Element[]>();
   for (const [el, top] of coveredBy) {
-    if (!subject(el) || !el.isConnected || !top.isConnected) continue;
+    if (!subject(el) || !el.isConnected || !top.isConnected || inPopupOver(el, top)) continue;
     let surface = top;
     // Name the whole overlay, not the paragraph inside it that happened to be hit.
     for (let node = parentOf(top); node && node !== body && !within(node, el); node = parentOf(node)) {
@@ -849,7 +962,15 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     }
   }
 
-  const nameless = controls.filter((el) => !el.shadowRoot && !el.querySelector("slot") && !Array.from(el.querySelectorAll("*")).some((inner) => inner.shadowRoot) && nameOf(el) === "");
+  // A control hidden from assistive technology is not announced at all, so it needs no name; the outline leaves it out too.
+  const nameless = controls.filter(
+    (el) =>
+      !el.closest('[aria-hidden="true"]')
+      && !el.shadowRoot
+      && !el.querySelector("slot")
+      && !Array.from(el.querySelectorAll("*")).some((inner) => inner.shadowRoot)
+      && nameOf(el) === "",
+  );
   if (nameless.length > 0) {
     const first = nameless[0]!;
     report(
@@ -973,13 +1094,41 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     }
     return value;
   };
+  const REPLACED = /^(?:img|picture|video|canvas|svg|iframe|object|embed)$/;
+  /**
+   * Whether something else lies over this piece of text, such as an open menu
+   * or a panel, so that what the picture shows there is not this text.
+   */
+  const hiddenUnder = (el: Element, left: number, top: number, right: number, bottom: number): boolean => {
+    for (const popup of popups) {
+      if (within(popup, el)) continue;
+      const box = popup.getBoundingClientRect();
+      if (box.left < right && box.right > left && box.top < bottom && box.bottom > top) return true;
+    }
+    // Hit-testing reaches only what is on the screen, and passes through text that ignores the pointer.
+    const y = (top + bottom) / 2;
+    if (y < 0 || y >= vh || cs(el).pointerEvents === "none") return false;
+    for (const share of [0.2, 0.5, 0.8]) {
+      const x = left + (right - left) * share;
+      if (x < 0 || x >= vw) continue;
+      const hit = topAt(x, y);
+      if (!hit || within(el, hit) || within(hit, el)) continue;
+      for (let node: Element | null = hit; node && !within(node, el); node = parentOf(node)) {
+        // A box paints only inside itself; the hit may be a positioned child that reaches out of it.
+        const box = node.getBoundingClientRect();
+        if (x < box.left || x > box.right || y < box.top || y > box.bottom) continue;
+        if (REPLACED.test(node.localName) || (hasSurface(cs(node)) && opacityOf(node) >= 0.1)) return true;
+      }
+    }
+    return false;
+  };
   const texts: TextSample[] = [];
   const sampled = new Set<Element>();
   const offsetX = window.scrollX;
   const offsetY = window.scrollY;
   for (const run of runs) {
     if (texts.length >= 2500) break;
-    if (sampled.has(run.el) || !subject(run.el) || !/[\p{L}\p{N}]/u.test(run.text)) continue;
+    if (sampled.has(run.el) || !subject(run.el) || inPicture(run.el) || !/[\p{L}\p{N}]/u.test(run.text)) continue;
     sampled.add(run.el);
     if (run.el.closest(':disabled, [aria-disabled="true"]')) continue;
     const style = cs(run.el);
@@ -989,11 +1138,12 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     if (!color) continue;
     const clip = clipWithin(run.el);
     const rect = run.rects[0]!;
-    const left = Math.max(rect.left, clip.l);
-    const top = Math.max(rect.top, clip.t);
-    const right = Math.min(rect.right, clip.r);
-    const bottom = Math.min(rect.bottom, clip.b);
-    if (right - left < 3 || bottom - top < 3) continue;
+    // Only the part that can be seen: a line scrolled out of its frame is not painted at all.
+    const left = Math.max(rect.left, clip.l, clip.vl);
+    const top = Math.max(rect.top, clip.t, clip.vt);
+    const right = Math.min(rect.right, clip.r, clip.vr);
+    const bottom = Math.min(rect.bottom, clip.b, clip.vb);
+    if (right - left < 3 || bottom - top < 3 || hiddenUnder(run.el, left, top, right, bottom)) continue;
     texts.push({
       where: describe(run.el),
       text: cut(run.text, 40),
