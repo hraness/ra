@@ -38,7 +38,7 @@ Text runs out of its box: past the right or left edge, or below the bottom, with
 Two pieces of text are painted on top of each other in the same layer.
 
 - Text on a different surface does not count: inside an absolutely positioned, fixed or transformed box, or a box with its own background. Neither does text nested inside the other, or text inside a picture (`role="img"`) that holds nothing Tab reaches.
-- Only what a line's boxes show of it counts: the rest of a line that an ellipsis cuts short, and a line scrolled out of its box's sight, lie over nothing.
+- Only what a line's boxes show of it counts: the rest of a line that an ellipsis or a box that hides its overflow cuts short lies over nothing. A line scrolled out of a scroller's sight still counts against text in the same scroller, which scrolls with it and meets it there, but not against text outside that scroller.
 - At most five pairs are reported per look.
 
 ### `covered`
@@ -47,8 +47,8 @@ Something sits over the centre of a control, so a click or tap there would land 
 
 - Left alone: a label covering its own input; checkbox, radio, file and range inputs, which custom controls often draw over on purpose; and controls that are nearly transparent.
 - Left alone: controls under an open dialog or popover, a menu, listbox or dialog that floats over the page (positioned absolute or fixed), or the panel that an expanded control has opened. Covering them is what it is there for. A menu bar or a list that is part of the page is judged like anything else, and so is a panel that holds its own expanded control, such as a sidebar with the button that hides it.
-- Left alone: a skip link clipped to nothing until it has focus, and a control scrolled out of sight inside a box, which hides it there.
-- A state with steps is looked at where its steps leave it, without scrolling (see `scroll`). There a control under something that stays put while its box scrolls, such as a sticky header or a bar docked over a list, is left alone when scrolling that box could bring it clear, as it would in a look that scrolls.
+- Left alone: a skip link clipped to nothing until it has focus, and a control scrolled out of sight inside a box it is laid out in, which hides it there. A fixed control escapes the boxes around it, so they never hide it.
+- A state with steps is looked at where its steps leave it, without scrolling (see `scroll`). There a control under something that stays put while its box scrolls, such as a sticky header or a bar docked over a list, is left alone when scrolling that box could bring it clear, as it would in a look that scrolls. A control that stays put itself, such as a fixed chat button under a cookie bar, is never brought clear, and neither is anything on a page that hides its overflow, as a page does under an open dialog. Something fixed inside a transformed box moves with that box, so it does not stay put.
 - An overlay is named as a whole, not by the paragraph inside it that happened to be hit.
 
 ## Reading and reaching
@@ -62,14 +62,14 @@ ra photographs the page twice, once as it is and once with every glyph made tran
 - Left alone: text under an open popup that paints a background, text under a nearly opaque cover (90% or more), and the part of a line that its scrolling box shows none of. A fainter veil, a frame, a shadow or a decorative picture over text lets the text show, so its contrast is still measured.
 - Left alone: text inside a picture (`role="img"`) that holds nothing Tab reaches, whose look is the picture's business.
 - On touch views, both pictures keep the layout for a finger that ra measured, although the browser matches a mouse while it photographs beyond the screen.
-- Left alone: in a look that its steps scrolled, text off the screen where a fixed layer lies. The pictures paint the layer there, at the scroll the steps left, although the screen never shows it over that text.
+- Left alone: text off the screen where a fixed layer lies, as it does when steps leave the page scrolled or a fixed layer is moved off the screen. The pictures paint the layer there, although the screen never shows it over that text.
 
 ### `small-target`
 
 On touch views, a control is smaller than `tapTarget` (24px by default) **and** another control is close enough to hit by mistake.
 
 - Left alone: a small control with room around it, and a link inside a sentence, which is as tall as its line, even in a span of its own.
-- A control's area takes in what it holds, such as a transparent input laid over a small label, since a tap there reaches it. A control on a fixed layer moved off the screen, such as a skip link until it has focus, is not a target.
+- A control's area takes in what it holds, such as a transparent input laid over a small label, since a tap there reaches it. It does not take in text kept for screen readers, the part a box inside it hides, or what floats clear of it, such as a tooltip. A control on a fixed layer moved off the screen, such as a skip link until it has focus, is not a target, unless a scroller on that layer, such as a full-screen menu, can bring it onto the screen.
 
 ### `no-name`
 

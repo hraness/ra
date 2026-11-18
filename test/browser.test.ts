@@ -185,8 +185,47 @@ describe("ra check on the fixture site", () => {
       /^contrast: "Pale words, scaled and partly clipped" has [\d.]+:1 contrast/u,
       // An icon pushed past the side of a row that clips, until only a sliver of it shows.
       /^cut-off: "Switch the theme" is cut off on the right by section#pushed\.pushed "Home" \(14px hidden\)\./u,
+      // A close button pushed up past the top of a card that clips.
+      /^cut-off: "Close the card" is cut off at the top by div\.notice "A card whose close button is pushed up…" \(30px hidden\)\./u,
+      // Lines that collide where their scroller has not shown them yet: past its right edge, and below its fold.
+      /^overlap: "Past the right edge, the firs…" and "The second line lies over it\." are drawn on top of each other\./u,
+      /^overlap: "Below the fold, the first lin…" and "The second line lies over tha…" are drawn on top of each other\./u,
     ];
     for (const pattern of expected) assert.ok(said.some((line) => pattern.test(line)), `${pattern}\n${said.join("\n")}`);
+  });
+
+  test("measures a tap target by where a tap reaches it", () => {
+    // Not by a label kept for screen readers far off the screen, nor by the part of a picture its box crops.
+    // Tricky's lone link proves the far label does not crowd the controls around it either.
+    for (const view of ["phone", "phone.dark"]) {
+      const said = messages(looks, "broken", view);
+      for (const pattern of [
+        /^small-target: 2 tap targets in section#icons\.icons are smaller than 24px with other controls close by, starting with button "Undo" \(20×20\)\.$/u,
+        /^small-target: 2 tap targets in section#avatars\.avatars are smaller than 24px with other controls close by, starting with link "Ada" \(20×20\)\.$/u,
+      ]) {
+        assert.ok(said.some((line) => pattern.test(line)), `${pattern} at ${view}\n${said.join("\n")}`);
+      }
+    }
+  });
+
+  test("reports a control that no scroll brings out from under what covers it", () => {
+    // Buttons fixed under a fixed cookie bar, one of them inside a box that hides what overflows it; a banner
+    // fixed inside a transformed box, so it moves with the page; and a page that hides its overflow.
+    const covered = [
+      'covered: button "Add to cart" is covered by p "Free shipping over fifty"; a click or tap on it would land on that instead.',
+      'covered: p.cookies "This site keeps a cookie." covers 2 controls: button "Help", button "Chat".',
+    ];
+    assert.deepEqual(messages(looks, "pinned", "phone"), covered, "pinned");
+    assert.deepEqual(messages(looks, "pinned-after-steps", "phone"), covered, "pinned after steps");
+    assert.deepEqual(messages(looks, "locked-after-steps", "phone"), [
+      'covered: button "Continue" is covered by p.bar "Ten percent off today"; a click or tap on it would land on that instead.',
+    ]);
+  });
+
+  test("tests the tap targets that a full-screen menu scrolls onto the screen", () => {
+    assert.deepEqual(messages(looks, "menu", "phone"), [
+      'small-target: 3 tap targets in nav.menu are smaller than 24px with other controls close by, starting with link "Mail us" (16×16).',
+    ]);
   });
 
   test("reports a page without a title or viewport", () => {
@@ -368,7 +407,7 @@ describe("ra look", () => {
   test("says how to name a state that does not exist, and exits 2", async () => {
     const ran = await ra(["look", "nowhere"]);
     assert.equal(ran.status, 2);
-    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, dialog, docked, noscript, tricky-without-scripts, tricky-after-a-jump, broken, refused, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
+    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, dialog, docked, noscript, tricky-without-scripts, tricky-after-a-jump, broken, pinned, pinned-after-steps, locked-after-steps, menu, refused, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
   });
 });
 

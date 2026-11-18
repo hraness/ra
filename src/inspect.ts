@@ -363,10 +363,20 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     }
     return el;
   };
+  /** Whether a box is where the fixed layers inside it are placed, so they move with it. */
+  const holdsFixed = (style: CSSStyleDeclaration) =>
+    style.transform !== "none" || style.filter !== "none" || style.perspective !== "none" || /paint|layout|strict|content/.test(style.contain);
   /** Whether a point inside a control lies past the edge of a box around it that hides what overflows. */
   const outOfSight = (el: Element, x: number, y: number): boolean => {
+    // Only the boxes that contain it can hide it: a fixed control escapes every box but one that holds fixed
+    // layers, and a positioned one escapes the unpositioned boxes between it and the box it is placed in.
+    let escape = cs(el).position;
     for (let node = parentOf(el); node && node !== body && node !== root; node = parentOf(node)) {
       const style = cs(node);
+      const holds = holdsFixed(style);
+      if (escape === "fixed" && !holds) continue;
+      if (escape === "absolute" && style.position === "static" && !holds) continue;
+      escape = style.position;
       if (style.overflowX === "visible" && style.overflowY === "visible") continue;
       const box = node.getBoundingClientRect();
       if (x < box.left || x > box.right || y < box.top || y > box.bottom) return true;
@@ -383,7 +393,14 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     const pinned = (node: Element, upTo: Element | null) => {
       for (let up: Element | null = node; up && up !== upTo; up = parentOf(up)) {
         const position = cs(up).position;
-        if (position === "fixed" || position === "sticky") return true;
+        if (position === "sticky") return true;
+        if (position === "fixed") {
+          // Fixed inside a box that holds fixed layers, such as a transformed wrapper, it moves with that box.
+          for (let holder = parentOf(up); holder && holder !== upTo && holder !== root; holder = parentOf(holder)) {
+            if (holdsFixed(cs(holder))) return false;
+          }
+          return true;
+        }
       }
       return false;
     };
@@ -392,9 +409,14 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       const overflow = cs(node).overflowY;
       if ((overflow === "auto" || overflow === "scroll") && node.scrollHeight > node.clientHeight + 1) boxes.push(node);
     }
-    if (pageScroller.scrollHeight > vh + 1) boxes.push(pageScroller);
+    // A page that hides its overflow, as one does under an open dialog, cannot be scrolled by its user.
+    // The page's own overflow is the root's, or the body's when the root leaves it visible.
+    const viewport = cs(root).overflowY !== "visible" ? cs(root).overflowY : cs(body).overflowY;
+    if (viewport !== "hidden" && viewport !== "clip" && pageScroller.scrollHeight > vh + 1) boxes.push(pageScroller);
     return boxes.some((box) => {
       const page = box === pageScroller;
+      // A control that stays put while the box scrolls, such as a fixed chat button, is never scrolled clear.
+      if (pinned(el, page ? null : box)) return false;
       if (page ? !pinned(cover, null) : within(box, cover) && !pinned(cover, box)) return false;
       const sight = page ? { top: 0, bottom: vh } : box.getBoundingClientRect();
       const up = box.scrollTop;
@@ -560,8 +582,6 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     vl: -Infinity, vr: Infinity, vt: -Infinity, vb: Infinity,
   };
   const SCREEN: Clip = { l: 0, r: vw, t: 0, b: vh, ol: root, or: root, ot: root, ob: root, sl: false, sr: false, st: false, sb: false, vl: 0, vr: vw, vt: 0, vb: vh };
-  const holdsFixed = (style: CSSStyleDeclaration) =>
-    style.transform !== "none" || style.filter !== "none" || style.perspective !== "none" || /paint|layout|strict|content/.test(style.contain);
   const clips = new Map<Element, Clip>();
   /** The clip applied to an element's own box by what contains it. */
   const clipOn = (el: Element): Clip => {
@@ -857,6 +877,9 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       cutBy(clip.ol, "left", el, nameOf(el) || tagOf(el), `${px(clip.l - rect.left)} hidden`);
     } else if (!clip.sb && clip.ob && clip.ob !== root && rect.bottom > clip.b + 4 && rect.top < clip.b - 4) {
       cutBy(clip.ob, "bottom", el, nameOf(el) || tagOf(el), `${px(rect.bottom - clip.b)} hidden`);
+    } else if (!clip.st && clip.ot && clip.ot !== root && rect.top < clip.t - 4 && rect.bottom > clip.t + 4) {
+      // The top edge too: a control there is out of sight for `covered`, so this is where it is reported.
+      cutBy(clip.ot, "top", el, nameOf(el) || tagOf(el), `${px(clip.t - rect.top)} hidden`);
     }
   }
   for (const item of cuts.values()) {
@@ -889,20 +912,34 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     }
     return body;
   };
-  const lines: Array<{ el: Element; text: string; rect: DOMRect; layer: Element }> = [];
+  // Only what its boxes leave of a line can lie over other text: a box that hides its overflow ends the rest,
+  // an ellipsis included. A scroller hides only for now. Two lines in the same scroller move together, so the
+  // reader meets the clash wherever it is; a line in another one is compared by what its scroller shows.
+  const lines: Array<{ el: Element; text: string; rect: DOMRect; seen: DOMRect | null; scroller: Element | null; layer: Element }> = [];
+  const scrollerOf = (el: Element): Element | null => {
+    for (let node = parentOf(el); node && node !== body && node !== root; node = parentOf(node)) {
+      const s = cs(node);
+      if (/^(?:auto|scroll)$/.test(s.overflowX) || /^(?:auto|scroll)$/.test(s.overflowY)) return node;
+    }
+    return null;
+  };
   for (const run of runs) {
     if (!subject(run.el) || inPicture(run.el)) continue;
     const clip = clipWithin(run.el);
     const layer = layerOf(run.el);
+    const scroller = scrollerOf(run.el);
     for (const rect of run.rects) {
-      // Only the part its boxes show can lie over other text: an ellipsis ends the rest, and a scroller
-      // shows nothing of what is scrolled out of its sight.
-      const left = Math.max(rect.left, clip.vl);
-      const right = Math.min(rect.right, clip.vr);
-      const top = Math.max(rect.top, clip.vt);
-      const bottom = Math.min(rect.bottom, clip.vb);
+      const left = Math.max(rect.left, clip.l);
+      const right = Math.min(rect.right, clip.r);
+      const top = Math.max(rect.top, clip.t);
+      const bottom = Math.min(rect.bottom, clip.b);
       if (right <= left || bottom <= top) continue;
-      lines.push({ el: run.el, text: run.text, rect: new DOMRect(left, top, right - left, bottom - top), layer });
+      const sl = Math.max(left, clip.vl);
+      const sr = Math.min(right, clip.vr);
+      const st = Math.max(top, clip.vt);
+      const sb = Math.min(bottom, clip.vb);
+      const seen = sr > sl && sb > st ? new DOMRect(sl, st, sr - sl, sb - st) : null;
+      lines.push({ el: run.el, text: run.text, rect: new DOMRect(left, top, right - left, bottom - top), seen, scroller, layer });
     }
   }
   lines.sort((a, b) => a.rect.top - b.rect.top);
@@ -914,10 +951,14 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       const b = lines[j]!;
       if (a.el === b.el || a.layer !== b.layer || within(a.el, b.el) || within(b.el, a.el)) continue;
       if (clashes.has(a.el) || clashes.has(b.el)) continue;
-      const width = Math.min(a.rect.right, b.rect.right) - Math.max(a.rect.left, b.rect.left);
-      const height = Math.min(a.rect.bottom, b.rect.bottom) - Math.max(a.rect.top, b.rect.top);
+      const same = a.scroller === b.scroller;
+      const ar = same ? a.rect : a.seen;
+      const br = same ? b.rect : b.seen;
+      if (!ar || !br) continue;
+      const width = Math.min(ar.right, br.right) - Math.max(ar.left, br.left);
+      const height = Math.min(ar.bottom, br.bottom) - Math.max(ar.top, br.top);
       if (width < 4 || height < 4) continue;
-      const smaller = Math.min(a.rect.width * a.rect.height, b.rect.width * b.rect.height);
+      const smaller = Math.min(ar.width * ar.height, br.width * br.height);
       if (width * height < smaller * 0.4) continue;
       clashes.add(a.el);
       clashes.add(b.el);
@@ -1002,7 +1043,12 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     const offScreen = (el: Element) => {
       const rect = el.getBoundingClientRect();
       if (rect.right > 0 && rect.left < vw && rect.bottom > 0 && rect.top < vh) return false;
-      for (let node: Element | null = el; node && node !== body; node = parentOf(node)) if (cs(node).position === "fixed") return true;
+      for (let node: Element | null = el; node && node !== body; node = parentOf(node)) {
+        const s = cs(node);
+        // A scroller between it and the fixed layer, such as a full-screen menu, can bring it onto the screen.
+        if (node !== el && (/^(?:auto|scroll)$/.test(s.overflowY) || /^(?:auto|scroll)$/.test(s.overflowX))) return false;
+        if (s.position === "fixed") return true;
+      }
       return false;
     };
     // WCAG 2.5.8's inline exception: a link in a sentence is as tall as its line, even inside spans of its own.
@@ -1022,15 +1068,28 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
         // unless the control hides what overflows it.
         const own = cs(el);
         if (own.overflowX === "visible" && own.overflowY === "visible") {
+          const self = el.getBoundingClientRect();
           for (const inner of Array.from(el.querySelectorAll("*"))) {
             const style = cs(inner);
-            if (style.pointerEvents === "none" || style.visibility === "hidden" || style.display === "none") continue;
-            const rect = inner.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) continue;
-            left = Math.min(left, rect.left);
-            top = Math.min(top, rect.top);
-            right = Math.max(right, rect.right);
-            bottom = Math.max(bottom, rect.bottom);
+            // Not text kept for screen readers, not the part a box inside hides, and not what floats clear of
+            // the control, such as a tooltip: none of those is a place to tap it.
+            if (style.pointerEvents === "none" || style.visibility === "hidden" || style.display === "none" || forReadersOnly(inner)) continue;
+            let { left: l, top: t, right: r, bottom: b } = inner.getBoundingClientRect();
+            for (let up = parentOf(inner); up && up !== el; up = parentOf(up)) {
+              const s = cs(up);
+              if (s.overflowX === "visible" && s.overflowY === "visible") continue;
+              const box = up.getBoundingClientRect();
+              l = Math.max(l, box.left);
+              t = Math.max(t, box.top);
+              r = Math.min(r, box.right);
+              b = Math.min(b, box.bottom);
+            }
+            if (r - l <= 0 || b - t <= 0) continue;
+            if (r < self.left || l > self.right || b < self.top || t > self.bottom) continue;
+            left = Math.min(left, l);
+            top = Math.min(top, t);
+            right = Math.max(right, r);
+            bottom = Math.max(bottom, b);
           }
         }
         if (el instanceof HTMLInputElement) {

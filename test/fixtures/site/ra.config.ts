@@ -40,6 +40,26 @@ export default defineConfig({
       },
     },
     broken: { url: "/broken", note: "One of every problem." },
+    // Controls that stay put under a bar that stays put too: a scroll never brings them clear, so they are
+    // covered, whether ra scrolls the page or steps leave it where it is.
+    pinned: { url: "/pinned", views: ["phone"] },
+    "pinned-after-steps": {
+      url: "/pinned",
+      views: ["phone"],
+      steps: async (page) => {
+        await page.getByRole("button", { name: "Chat" }).waitFor();
+      },
+    },
+    // A page that hides its overflow cannot be scrolled, so a button under its bar stays covered.
+    "locked-after-steps": {
+      url: "/locked",
+      views: ["phone"],
+      steps: async (page) => {
+        await page.getByRole("button", { name: "Continue" }).waitFor();
+      },
+    },
+    // A full-screen menu that scrolls: the small icons below its fold are tap targets.
+    menu: { url: "/menu", views: ["phone"] },
     // Scripts off too, but here the page's own policy refuses its stylesheet, which is.
     refused: { url: "/refused", views: ["desktop"], javascript: false },
     untitled: { url: "/untitled", views: ["phone"] },

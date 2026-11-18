@@ -73,6 +73,11 @@
       #jumped { scroll-margin-top: 80px; }
       /* On wide screens, a panel fixed in the corner lists recent pages, each cut short with an ellipsis.
          Its list scrolls, and runs on past the bottom of the screen until it is scrolled. */
+      /* A lone small link, and far below it a lone icon whose label for screen readers waits off the screen. */
+      .lone { font-size: 12px; line-height: 16px; }
+      .lone-gap { margin-top: 300px; text-align: right; }
+      .lone-gap button { width: 20px; height: 20px; padding: 0; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+      .far-label { position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; overflow: hidden; }
       .recent { display: none; }
       @media (min-width: 1280px) {
         .recent { display: block; position: fixed; right: 16px; bottom: 16px; width: 200px; height: 150px; padding: 8px 12px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
@@ -217,6 +222,10 @@
       <p><a href="/broken">Second result</a></p>
       <p>Third result</p>
       <p>A fourth, in plain text.</p>
+
+      <h2>Small, with room around it</h2>
+      <p class="lone"><a href="/">Questions</a></p>
+      <p class="lone-gap"><button type="button"><svg width="12" height="12" aria-hidden="true"><rect width="12" height="12" /></svg><span class="far-label">Close the help</span></button></p>
 
     </main>
     <nav class="recent" aria-label="Recent pages">
