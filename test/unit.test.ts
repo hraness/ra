@@ -604,3 +604,17 @@ describe("findings", () => {
     assert.match(passing.text, /✓ home {2}\(1 accepted\)\n✓ long\n {2}note: The page is very long\.\n\nAll 2 states look right, with 1 note\.\n/u);
   });
 });
+
+describe("docs", () => {
+  test("the README installs and verifies the release that package.json names", () => {
+    const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
+    const { version } = JSON.parse(read("../package.json")) as { version: string };
+    const readme = read("../README.md");
+    const tarball = `https://github.com/hraness/ra/releases/download/v${version}/hraness-ra-${version}.tgz`;
+    for (const line of [`npm install -D ${tarball} playwright-core\n`, `bun add -d ${tarball} playwright-core\n`, `gh release verify-asset v${version} hraness-ra-${version}.tgz -R hraness/ra\n`]) {
+      assert.ok(readme.includes(line), `README.md should have this line for ${version}: ${line}`);
+    }
+    const named = [...readme.matchAll(/\bv(\d+\.\d+\.\d+)\b|hraness-ra-(\d+\.\d+\.\d+)\.tgz/gu)].map((match) => match[1] ?? match[2]);
+    assert.deepEqual([...new Set(named)], [version], "README.md names a release other than the one in package.json");
+  });
+});

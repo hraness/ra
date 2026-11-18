@@ -35,4 +35,4 @@ ra looks at a web app's interface in a real browser inside a fake world, and say
 
 - Work on a branch and open a pull request to `main`. The `Required` check must pass. Squash-merge it.
 - `dist/` is never committed. The release workflow builds it.
-- To release, bump `version` in `package.json` in the pull request. Once CI passes on `main`, `auto-tag` tags the version and `release` publishes an immutable GitHub release with the packed tarball as its one asset. GitHub records the SHA-256 of the asset.
+- To release, bump `version` in `package.json` in the pull request, and change the release address and the `verify-asset` command in `README.md` to match; a unit test checks that they agree. Once CI passes on `main`, `auto-tag` tags the version and `release` publishes an immutable GitHub release with the packed tarball as its one asset. GitHub records the SHA-256 of the asset.
