@@ -107,6 +107,15 @@ describe("ra check on the fixture site", () => {
   });
 
 
+  test("finds nothing behind a dialog that shuts the rest of the page out without saying it is modal", () => {
+    // No aria-modal and no showModal(): the page under the scrim is inert, as some component libraries make it.
+    for (const view of ["desktop", "phone", "phone.dark"]) assert.deepEqual(messages(looks, "inert-dialog", view), [], `inert-dialog at ${view}`);
+  });
+
+  test("does not wait for the tab's icon, which nothing on the page waits for", () => {
+    assert.deepEqual(messages(looks, "slow-icon", "desktop"), [], "slow-icon");
+  });
+
   test("finds nothing under an open dialog whose frame scrolls", () => {
     for (const view of ["desktop", "phone", "phone.dark"]) {
       const look = looks.find((candidate) => candidate.state === "dialog" && candidate.view === view)!;
@@ -185,6 +194,11 @@ describe("ra check on the fixture site", () => {
       /^contrast: "Pale words, scaled and partly clipped" has [\d.]+:1 contrast/u,
       // An icon pushed past the side of a row that clips, until only a sliver of it shows.
       /^cut-off: "Switch the theme" is cut off on the right by section#pushed\.pushed "Home" \(14px hidden\)\./u,
+      // Hidden from screen readers beside an open dialog, but too small to be the page the dialog shuts out.
+      /^contrast: "Pale words kept from screen readers\." has 1\.9:1 contrast/u,
+      // Spaces kept as typed, beside a word too long for its box: the word is inked past the edge.
+      /^spill: "Kept as typed: Rechtsschutzversicherung…" runs \d+px past the right edge of its box, p\.kept\./u,
+      /^cut-off: "Clipped as typed: Rechtsschutzversicher…" is cut off on the right by its own box \(\d+px hidden\)\./u,
       // A close button pushed up past the top of a card that clips.
       /^cut-off: "Close the card" is cut off at the top by div\.notice "A card whose close button is pushed up…" \(30px hidden\)\./u,
       // Lines that collide where their scroller has not shown them yet: past its right edge, and below its fold.
@@ -383,6 +397,20 @@ describe("ra look", () => {
     assert.deepEqual(look!.findings, []);
   });
 
+  test("judges the page behind a dialog that leaves the page open", async () => {
+    // The dialog fixture with the page left live: its dim lines under the scrim are read like any others.
+    const copy = copySite();
+    const page = join(copy, "inert-dialog.html");
+    writeFileSync(page, readFileSync(page, "utf8").replace('<div id="app" inert>', '<div id="app">'));
+    const ran = await ra(["look", "inert-dialog", "--at", "desktop", "--json"], copy);
+    assert.equal(ran.status, 0, ran.err);
+    const [look] = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+    assert.ok(
+      look!.findings.some((finding) => finding.kind === "contrast" && finding.message.startsWith('"The page has ordinary text')),
+      look!.findings.map((finding) => `${finding.kind}: ${finding.message}`).join("\n"),
+    );
+  });
+
   test("prints text for a path, and what --then returns", async () => {
     const ran = await ra(["look", "/tricky", "--then", "return await page.title()"]);
     assert.equal(ran.status, 0, ran.err);
@@ -407,7 +435,7 @@ describe("ra look", () => {
   test("says how to name a state that does not exist, and exits 2", async () => {
     const ran = await ra(["look", "nowhere"]);
     assert.equal(ran.status, 2);
-    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, dialog, docked, noscript, tricky-without-scripts, tricky-after-a-jump, broken, pinned, pinned-after-steps, locked-after-steps, menu, refused, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
+    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, dialog, inert-dialog, slow-icon, docked, noscript, tricky-without-scripts, tricky-after-a-jump, broken, pinned, pinned-after-steps, locked-after-steps, menu, refused, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
   });
 });
 

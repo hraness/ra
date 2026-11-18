@@ -497,11 +497,26 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       navigation = null;
       for (const request of pending) if (!request.isNavigationRequest()) pending.delete(request);
     });
+    // The browser fetches the tab's icon for itself once the page has loaded, and nothing on the page waits
+    // for it, so neither does ra. What the icon's request answers is still judged.
+    const tabIcon = (url: string): Promise<boolean> =>
+      page
+        .evaluate((url) => {
+          // `window.document`: here `document` names the page's own request.
+          const icons = Array.from(window.document.querySelectorAll<HTMLLinkElement>('link[rel~="icon" i]'), (link) => link.href);
+          return icons.includes(url) || (icons.length === 0 && url === new URL("/favicon.ico", window.location.href).href);
+        }, url)
+        .catch(() => false);
     page.on("request", (request) => {
       observation.requests.total++;
       lastActivity = performance.now();
       if (request.isNavigationRequest() && request.frame() === page.mainFrame()) navigation = request;
       if (!BACKGROUND.has(request.resourceType())) pending.add(request);
+      if (request.resourceType() === "other" && request.method() === "GET") {
+        void tabIcon(request.url()).then((icon) => {
+          if (icon) pending.delete(request);
+        });
+      }
       if (request.redirectedFrom() === null) return;
       const verdict = verdictOf(request);
       if (verdict === "allowed") calls.push({ from: "page", type: request.resourceType(), method: request.method(), url: request.url(), body: null, outcome: "allowed", via: startOf(request) });
