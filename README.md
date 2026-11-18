@@ -68,7 +68,7 @@ Browser checks are slow, flaky when written carelessly, and easy to write in way
 ra needs Node 22.18 or later and a Playwright in your project: `playwright-core`, `playwright` or `@playwright/test`. Install ra from its GitHub release:
 
 ```sh
-bun add -d https://github.com/hraness/ra/releases/download/v0.1.2/hraness-ra-0.1.2.tgz playwright-core
+bun add -d https://github.com/hraness/ra/releases/download/v0.1.3/hraness-ra-0.1.3.tgz playwright-core
 bunx --no-install playwright-core install chromium
 ```
 
@@ -185,7 +185,7 @@ The browser follows a redirect by itself, so routing sees only the first request
 - `accept`: findings to accept for this state.
 - `scroll: false`: stops ra scrolling through the page.
 - `live: true`: marks the state as safe to look at on a deployment.
-- `javascript: false`: looks at the page with its scripts turned off, as a reader without JavaScript or a crawler sees it, `<noscript>` content included. Every check still runs. It is still a read-only page load, so it does not make a state local, and a run against a deployment may use it without `live`. With scripts off, `session` is not set, since no script could read it, and `see` cannot match text inside `<noscript>`; check that text in `expect` with a CSS locator.
+- `javascript: false`: looks at the page with its scripts turned off, as a reader without JavaScript or a crawler sees it, `<noscript>` content included. Every check still runs. It is still a read-only page load, so it does not make a state local, and a run against a deployment may use it without `live`. With scripts off, `session` is not set, since no script could read it, and `see` cannot match text inside `<noscript>`; check that text in `expect` with a CSS locator. The browser refuses the page's scripts and script preloads then, and ra does not report that.
 
 A state with its own world or steps only makes sense on your machine. Against a deployment, `ra check --url https://…` skips such states unless they are marked `live`, and `ra look` refuses them.
 

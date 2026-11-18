@@ -505,6 +505,9 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       const reason = request.failure()?.errorText ?? "";
       if (settleHop(request, reason)) return;
       if (/ERR_ABORTED|ERR_BLOCKED_BY_CLIENT/u.test(reason)) return;
+      // With scripts off, Chromium refuses every script request, a preload among them, and calls the refusal
+      // "csp" although no policy is involved (crbug.com/600795). The script could not run anyway.
+      if (!scripts && reason === "csp" && request.resourceType() === "script") return;
       if (/ERR_NAME_NOT_RESOLVED|ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/u.test(reason) && verdictOf(request) === "unexpected") {
         // Routing never saw this one, and the closed world stopped it.
         calls.push({ from: "page", type: request.resourceType(), method: request.method(), url: request.url(), body: null, outcome: "unexpected" });

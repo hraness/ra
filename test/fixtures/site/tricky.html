@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Fixture — Tricky but fine</title>
     <link rel="stylesheet" href="/site.css" />
+    <!-- A bundler's usual head: a module and a script, preloaded. With scripts off, Chromium refuses both. -->
+    <link rel="modulepreload" href="/preload.js" />
+    <link rel="preload" as="script" href="/preload-more.js" />
     <style>
       .skip { position: absolute; left: -9999px; top: 0; }
       .skip:focus { left: 8px; top: 8px; }

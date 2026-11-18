@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- A policy that allows no stylesheet: the page's own is refused, and that is a real problem. -->
+    <meta http-equiv="Content-Security-Policy" content="style-src 'none'" />
+    <title>Fixture — A refused stylesheet</title>
+    <link rel="stylesheet" href="/site.css" />
+    <!-- With scripts off, Chromium refuses these as well and calls it csp; they are not a problem. -->
+    <link rel="modulepreload" href="/preload.js" />
+    <link rel="preload" as="script" href="/preload-more.js" />
+  </head>
+  <body>
+    <main>
+      <h1>A page whose own policy refuses its stylesheet</h1>
+      <p>It reads unstyled.</p>
+    </main>
+  </body>
+</html>

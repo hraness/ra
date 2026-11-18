@@ -19,7 +19,11 @@ export default defineConfig({
         if (!(await page.locator("noscript p.faint").isVisible())) throw new Error("The line inside <noscript> is not showing.");
       },
     },
+    // Scripts off: Chromium refuses the page's script preloads, which is not a problem.
+    "tricky-without-scripts": { url: "/tricky", views: ["desktop"], javascript: false },
     broken: { url: "/broken", note: "One of every problem." },
+    // Scripts off too, but here the page's own policy refuses its stylesheet, which is.
+    refused: { url: "/refused", views: ["desktop"], javascript: false },
     untitled: { url: "/untitled", views: ["phone"] },
     // A strict Content-Security-Policy, which ra's own looking must not trip.
     strict: { url: "/strict", views: ["desktop"], note: "Two pale lines, one in a shadow root, on a page that allows no inline style." },

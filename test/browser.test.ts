@@ -115,6 +115,15 @@ describe("ra check on the fixture site", () => {
     assert.ok(!look.notes.some((note) => note.includes("never stopped changing")), look.notes.join("\n"));
   });
 
+  test("leaves alone the script preloads Chromium refuses with scripts off, and reports a stylesheet a policy refuses", () => {
+    // Chromium calls both refusals csp; only the stylesheet's is the page's doing.
+    assert.deepEqual(kinds(looks, "tricky-without-scripts", "desktop"), [], "tricky with scripts off");
+    const look = looks.find((candidate) => candidate.state === "refused")!;
+    const said = look.findings.map((finding) => `${finding.kind}: ${finding.message}`);
+    assert.deepEqual(kinds(looks, "refused", "desktop"), ["console", "request"], said.join("\n"));
+    assert.ok(said.includes("request: GET /site.css failed (csp)."), said.join("\n"));
+  });
+
   test("finds every planted problem", () => {
     const desktop = kinds(looks, "broken", "desktop");
     for (const kind of ["console", "contrast", "covered", "cut-off", "image", "no-name", "outside", "overlap", "request", "spill"]) {
@@ -321,7 +330,7 @@ describe("ra look", () => {
   test("says how to name a state that does not exist, and exits 2", async () => {
     const ran = await ra(["look", "nowhere"]);
     assert.equal(ran.status, 2);
-    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, dialog, noscript, broken, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
+    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, dialog, noscript, tricky-without-scripts, broken, refused, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
   });
 });
 

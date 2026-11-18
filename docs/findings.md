@@ -100,7 +100,7 @@ The console logged an error, or an exception went uncaught. Repeats are counted.
 
 ### `request`
 
-A request failed or answered 4xx/5xx. An error the world was told to give is the state you asked for, not a finding. A reply function that throws is one, since the world itself is broken; the page gets a 500 and the message carries the error. So is a reply for an address that the page reaches only through a redirect: the browser follows redirects by itself and never asks for it. Give the reply to the address that redirects. Against a deployment no reply stands in for the deployment's own paths, so there the message suggests blocking that address instead.
+A request failed or answered 4xx/5xx. An error the world was told to give is the state you asked for, not a finding. A reply function that throws is one, since the world itself is broken; the page gets a 500 and the message carries the error. So is a reply for an address that the page reaches only through a redirect: the browser follows redirects by itself and never asks for it. Give the reply to the address that redirects. Against a deployment no reply stands in for the deployment's own paths, so there the message suggests blocking that address instead. In a state with `javascript: false`, the browser refuses every script the page asks for, preloads included, and names the refusal `csp` though no policy is involved; ra leaves those out. Anything else a policy refuses is still reported.
 
 ### `outside`
 
