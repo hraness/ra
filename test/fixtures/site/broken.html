@@ -74,6 +74,9 @@
       .avatars a { display: inline-block; width: 20px; height: 20px; margin-right: 2px; vertical-align: middle; }
       .avatars span { display: block; width: 20px; height: 20px; overflow: hidden; border-radius: 50%; }
       .avatars img { display: block; width: 200px; height: 200px; }
+      /* Spaces kept as typed, with a word too long for its box: the word itself crosses the edge. */
+      .kept { box-sizing: content-box; width: 20ch; margin: 0 0 12px; padding: 0; font: 14px/1.5 ui-monospace, monospace; white-space: pre-wrap; background: var(--wash); }
+      .kept.clipped { overflow: hidden; }
     </style>
   </head>
   <body>
@@ -119,6 +122,8 @@
 
       <section id="clear" class="clear">
         <p class="pale">Pale words beside a clear wrapper.</p>
+        <!-- Hidden from screen readers beside an open dialog, but too small to be the page that dialog shuts out. -->
+        <p class="pale" aria-hidden="true">Pale words kept from screen readers.</p>
         <div class="clear-wrap" role="dialog" aria-label="Cookie choices"><div class="clear-bar">We use cookies. <button type="button">OK</button></div></div>
       </section>
 
@@ -154,6 +159,8 @@
       <section id="icons" class="icons"><button type="button"><svg width="12" height="12" aria-hidden="true"><rect width="12" height="12" /></svg><span class="away">Undo</span></button><button type="button"><svg width="12" height="12" aria-hidden="true"><rect width="12" height="12" /></svg><span class="away">Redo</span></button></section>
 
       <section id="avatars" class="avatars"><a href="/"><span><img src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Crect width=%22200%22 height=%22200%22 fill=%22%23468%22/%3E%3C/svg%3E" alt="Ada" /></span></a><a href="/"><span><img src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Crect width=%22200%22 height=%22200%22 fill=%22%23468%22/%3E%3C/svg%3E" alt="Grace" /></span></a></section>
+
+      <section id="kept"><p class="kept">Kept as typed: Rechtsschutzversicherungsgesellschaften   and more.</p><p class="kept clipped">Clipped as typed: Rechtsschutzversicherungsgesellschaften   and more.</p></section>
     </main>
     <script>
       console.error("Something the app logged as an error");

@@ -8,6 +8,11 @@ export default defineConfig({
     tricky: { url: "/tricky", note: "Deliberate clipping, scrolling and hiding that must not be reported." },
     // An open modal dialog whose frame scrolls, over a dimmed and blurred page: clean too.
     dialog: { url: "/dialog", note: "A search dialog, open, with results scrolled out of its frame." },
+    // A dialog that never says it is modal, over a page shut out with inert under a dark scrim: clean too.
+    "inert-dialog": { url: "/inert-dialog", note: "A dialog without aria-modal, over a page made inert under a scrim." },
+    // The browser fetches the tab's icon for itself once the page has loaded, and nothing on the page waits for
+    // it: an icon that never answers is not the page still loading.
+    "slow-icon": { url: "/icon", views: ["desktop"], world: { replies: { "GET /icon.svg": () => new Promise<never>(() => {}) } } },
     // Steps leave a look where they put it, unscrolled. A row under the docked bar is not covered: the list
     // can scroll it clear.
     docked: {

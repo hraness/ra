@@ -513,8 +513,42 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     if (el.localName === "dialog" && !el.matches(":modal")) continue;
     modal = el;
   }
+  // Some libraries leave `aria-modal` off a modal dialog, for Safari's sake, and shut the rest of the page out
+  // with `inert` or `aria-hidden` instead. While a dialog is open over a page shut out like that, what is shut
+  // out lies behind it. What the shutting leaves alone, such as a toast, is still judged. It is the page that
+  // is shut out, so the part shut out beside the dialog covers a good share of the screen, unlike an icon
+  // hidden from screen readers.
+  const shut = (el: Element): boolean => el.hasAttribute("inert") || el.getAttribute("aria-hidden") === "true";
+  const coversScreen = (el: Element): boolean => {
+    const rect = el.getBoundingClientRect();
+    const width = Math.min(rect.right, vw) - Math.max(rect.left, 0);
+    const height = Math.min(rect.bottom, vh) - Math.max(rect.top, 0);
+    return width > 0 && height > 0 && width * height >= (vw * vh) / 4;
+  };
+  const shutOut = new Map<Element, boolean>();
+  const isShutOut = (el: Element | null): boolean => {
+    if (!el || el === body || el === root) return false;
+    let result = shutOut.get(el);
+    if (result === undefined) {
+      result = shut(el) || isShutOut(parentOf(el));
+      shutOut.set(el, result);
+    }
+    return result;
+  };
+  let behindDialog = false;
+  if (!modal) {
+    for (const dialog of Array.from(doc.querySelectorAll('dialog[open], [role="dialog"], [role="alertdialog"]'))) {
+      if (!visible(dialog) || isShutOut(dialog)) continue;
+      for (let node: Element | null = dialog; node && node !== body && node !== root && !behindDialog; node = parentOf(node)) {
+        const siblings = Array.from((node.parentNode as ParentNode | null)?.children ?? []);
+        behindDialog = siblings.some((sibling) => sibling !== node && shut(sibling) && visible(sibling) && coversScreen(sibling));
+      }
+      if (behindDialog) break;
+    }
+  }
   /** Whether problems with this element are worth reporting: inside the scope, and not behind an open dialog. */
-  const subject = (el: Element): boolean => (!scope || within(scope, el)) && (!modal || within(modal, el));
+  const subject = (el: Element): boolean =>
+    (!scope || within(scope, el)) && (!modal || within(modal, el)) && !(behindDialog && isShutOut(el));
   /**
    * What is open on top of the page: menus, listboxes, dialogs, popovers and
    * whatever an expanded control has opened. Covering what lies beneath is what
@@ -678,6 +712,7 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
 
   interface Run {
     el: Element;
+    node: Text;
     text: string;
     rects: DOMRect[];
   }
@@ -713,11 +748,53 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       if (!text || !visible(el) || forReadersOnly(el)) continue;
       range.selectNodeContents(node);
       const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0.5 && rect.height > 0.5);
-      if (rects.length > 0) runs.push({ el, text, rects });
+      if (rects.length > 0) runs.push({ el, node: node as Text, text, rects });
     }
   };
   readText(body);
   for (const el of all) if (el.shadowRoot) readText(el.shadowRoot);
+
+  /** Whether this element's text keeps its spaces, as `pre-wrap` does, rather than dropping them at the ends of lines. */
+  const keepsSpaces = (el: Element): boolean => {
+    const style = cs(el);
+    return /^(?:preserve|preserve-spaces|break-spaces)$/.test(style.getPropertyValue("white-space-collapse")) || /^(?:pre|pre-wrap|break-spaces)\b/.test(style.whiteSpace);
+  };
+  const inks = new Map<Run, DOMRect[] | null>();
+  /**
+   * The inked part of a line: from its first letter to its last. Where text keeps its spaces, those at the end
+   * of a wrapped line hang past it, taking room there and drawing nothing, so they cannot spill or be cut off.
+   * Null for a line of nothing but spaces. A run too long to measure word by word keeps its line boxes.
+   */
+  const inkOn = (run: Run, line: DOMRect): DOMRect | null => {
+    if (!keepsSpaces(run.el)) return line;
+    let words = inks.get(run);
+    if (words === undefined) {
+      const found: DOMRect[] = [];
+      let measured = true;
+      const word = doc.createRange();
+      for (const match of (run.node.nodeValue ?? "").matchAll(/\S+/gu)) {
+        if (found.length >= 2000) {
+          measured = false;
+          break;
+        }
+        word.setStart(run.node, match.index);
+        word.setEnd(run.node, match.index + match[0].length);
+        for (const rect of Array.from(word.getClientRects())) if (rect.width > 0.5 && rect.height > 0.5) found.push(rect);
+      }
+      words = measured ? found : null;
+      inks.set(run, words);
+    }
+    if (words === null) return line;
+    let left = Infinity;
+    let right = -Infinity;
+    for (const rect of words) {
+      // A word on this line, not on the one above or below, which can overlap it a little.
+      if (Math.min(rect.bottom, line.bottom) - Math.max(rect.top, line.top) <= Math.min(rect.height, line.height) / 2) continue;
+      left = Math.min(left, rect.left);
+      right = Math.max(right, rect.right);
+    }
+    return right > left ? new DOMRect(left, line.top, right - left, line.height) : null;
+  };
 
   const edgeName = (owner: Element) => (owner === root ? "the edge of the screen" : owner === body ? "the edge of the page" : describe(owner));
   type Side = "right" | "left" | "bottom" | "top";
@@ -802,11 +879,13 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     let below = 0;
     let inSight = 0;
     for (const rect of run.rects) {
-      if (!clip.sr && clip.or && rect.right > clip.r + 2 && rect.left < clip.r - 2 && !trims(clip.or)) {
-        cutBy(clip.or, "right", run.el, run.text, `${px(rect.right - clip.r)} hidden`);
+      // Past a side, only ink counts.
+      const ink = rect.right > clip.r + 2 || rect.left < clip.l - 2 ? inkOn(run, rect) : rect;
+      if (ink && !clip.sr && clip.or && ink.right > clip.r + 2 && ink.left < clip.r - 2 && !trims(clip.or)) {
+        cutBy(clip.or, "right", run.el, run.text, `${px(ink.right - clip.r)} hidden`);
       }
-      if (!clip.sl && clip.ol && rect.left < clip.l - 2 && rect.right > clip.l + 2 && !trims(clip.ol)) {
-        cutBy(clip.ol, "left", run.el, run.text, `${px(clip.l - rect.left)} hidden`);
+      if (ink && !clip.sl && clip.ol && ink.left < clip.l - 2 && ink.right > clip.l + 2 && !trims(clip.ol)) {
+        cutBy(clip.ol, "left", run.el, run.text, `${px(clip.l - ink.left)} hidden`);
       }
       const enough = Math.max(3, rect.height * 0.25);
       if (!clip.sb && clip.ob && rect.top >= clip.b - 1) {
@@ -836,8 +915,10 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
         if (style.overflowY !== "visible") freeY = false;
         if (node === box) break;
       }
-      for (const rect of run.rects) {
-        if (rect.left >= edge.right || rect.right <= edge.left) continue;
+      for (const line of run.rects) {
+        // Past a side, only ink counts.
+        const rect = line.right > edge.right + 3 || line.left < edge.left - 3 ? inkOn(run, line) : line;
+        if (!rect || rect.left >= edge.right || rect.right <= edge.left) continue;
         let side: Side | null = null;
         let by = 0;
         if (freeX && rect.right > edge.right + 3 && clip.r > edge.right + 1) {

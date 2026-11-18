@@ -4,6 +4,8 @@ Every finding is a sentence: what is wrong, which element, and by how much. Each
 
 ra's first duty is to stay quiet on pages that are fine. Each check below lists what it deliberately leaves alone. A false alarm on a correct page is a bug in ra: please report it with the smallest page that shows it.
 
+Nothing behind an open modal dialog is judged. Behind a `<dialog>` opened with `showModal()`, or one marked `aria-modal="true"`, that is everything outside it. Some component libraries leave `aria-modal` off and shut the rest of the page out with `inert` or `aria-hidden="true"` instead. Behind a dialog like that, what is shut out is left alone, and what stays open, such as a toast, is still judged.
+
 `ra check` folds the same finding at several views into one line and names the views only when it does not show at all of them: `[phone, phone.dark]`.
 
 ## Layout
@@ -21,6 +23,7 @@ The page scrolls sideways at this view. The message names up to three elements t
 Text or a control is clipped by a box with `overflow: hidden` or `clip`, so part of it cannot be seen or reached.
 
 - Left alone: an ellipsis (`text-overflow` other than `clip`) and a line clamp (`-webkit-line-clamp`), which are clipping on purpose.
+- Left alone: spaces kept as typed (`white-space: pre-wrap` and the like) that hang past the end of a wrapped line. They take room there but draw nothing; only letters count.
 - Left alone: anything past an edge of a box that scrolls, since it can be scrolled into view, even where a box inside it hides its overflow at other edges: a line cut short with an ellipsis, in a panel whose list runs past the bottom of the screen, is cut off only on its own sides.
 - A control pushed past a side that does not scroll is cut off however little of it still shows, such as an icon with only its last pixels inside the page.
 - Left alone: screen-reader-only text: tiny and clipped, or clipped to nothing by `clip` or `clip-path` at any size, as a skip link is until it has focus.
@@ -32,6 +35,7 @@ Text or a control is clipped by a box with `overflow: hidden` or `clip`, so part
 Text runs out of its box: past the right or left edge, or below the bottom, without being clipped. Usually a long word, a fixed height, or a flex child that cannot shrink.
 
 - Left alone: text inside a box that scrolls or hides its overflow between the text and the box; clipping there is `cut-off`'s business.
+- Left alone: spaces kept as typed that hang past the end of a wrapped line, as under `cut-off`.
 
 ### `overlap`
 
@@ -119,7 +123,7 @@ The page did not load: a network error, a timeout, or a navigation the closed wo
 
 ### `busy`
 
-Requests were still open when the settle time ran out (5 seconds by default). Usually a long poll, a stream or a request that never answers. Give it a reply in the world, or block it. A new document cancels what the old one still had open, so a reload in a state's steps leaves nothing loading behind it.
+Requests were still open when the settle time ran out (5 seconds by default). Usually a long poll, a stream or a request that never answers. Give it a reply in the world, or block it. The browser's own fetch of the tab's icon is not waited for, since nothing on the page waits for it either; what it answers is still judged. A new document cancels what the old one still had open, so a reload in a state's steps leaves nothing loading behind it.
 
 Or the page stopped answering: ra's own checks on it, its pictures of it, or its wait for the page to settle, did not finish within the project's `timeout` (30 seconds by default) plus the few seconds those waits take by design, usually because a script keeps the page busy. The message says what ra was doing. What the checks found before then is still reported; the look stops there, and the run goes on with the next one.
 
