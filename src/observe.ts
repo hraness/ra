@@ -113,7 +113,7 @@ async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page[
     return { sheet, roots };
   }, BARE), limit, "busy", stopped(limit, "hid the text for the picture without it"));
   try {
-    return await page.screenshot(shot);
+    return await pictured(page.screenshot(shot), actionWait(limit));
   } finally {
     await bounded(
       hidden.evaluate(({ sheet, roots }) => {
@@ -318,6 +318,23 @@ async function bounded<T>(work: Promise<T>, ms: number, kind: string, message: s
   }
 }
 
+/** Playwright's limit for one action on the page, such as a picture. */
+function actionWait(timeout: number): number {
+  return Math.min(timeout, 10_000);
+}
+
+/** How long past Playwright's own limit a picture may take to give up. */
+const PICTURE_GRACE = 2000;
+
+/**
+ * A picture, within Playwright's limit for it and a grace. An older playwright-core that runs out of time
+ * for a picture still waits for the page to undo what it set for the picture, and a page that stopped
+ * answering never does.
+ */
+function pictured<T>(shot: Promise<T>, wait: number): Promise<T> {
+  return bounded(shot, wait + PICTURE_GRACE, "busy", stopped(wait + PICTURE_GRACE, "took a picture of it"));
+}
+
 /** What a look says when the page stopped answering while ra was doing `part`. */
 function stopped(ms: number, part: string): string {
   return `The page stopped answering for ${seconds(ms)} while ra ${part}, so the look stopped there.`;
@@ -429,7 +446,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     await closeWorld(context, { world: state.world, origin, live, calls, onReplyError: (message) => refused.push(message) });
     const page = await context.newPage();
     page.setDefaultNavigationTimeout(project.timeout);
-    page.setDefaultTimeout(Math.min(project.timeout, 10_000));
+    page.setDefaultTimeout(actionWait(project.timeout));
 
     const pending = new Set<Request>();
     let lastActivity = performance.now();
@@ -646,8 +663,8 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
           try {
             await inTouchLayout(page, view.touch, project.timeout, () =>
               options.scope === undefined
-                ? page.screenshot({ path: picture, scale: "css", animations: "disabled", caret: "hide" })
-                : target.screenshot({ path: picture, scale: "css", animations: "disabled", caret: "hide", timeout: 10_000 }),
+                ? pictured(page.screenshot({ path: picture, scale: "css", animations: "disabled", caret: "hide" }), actionWait(project.timeout))
+                : pictured(target.screenshot({ path: picture, scale: "css", animations: "disabled", caret: "hide", timeout: 10_000 }), 10_000),
             );
             observation.picture = picture;
           } catch (error) {
@@ -709,7 +726,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
           // kept even when the second cannot be taken.
           let failed: unknown;
           const [painted, bare] = await inTouchLayout(page, view.touch, project.timeout, async () => {
-            const first = await page.screenshot(shot);
+            const first = await pictured(page.screenshot(shot), actionWait(project.timeout));
             const second = inspection.texts.length === 0
               ? null
               : await pictureWithoutText(page, shot, project.timeout).catch((error: unknown) => {

@@ -262,8 +262,10 @@ export default defineConfig({
       said("late").some((line) => /^busy: The page stopped answering for [\d.]+s while ra waited for it to settle, so the look stopped there\.$/u.test(line)),
       said("late").join("\n"),
     );
-    assert.deepEqual(said("held"), ["busy: The page stopped answering: ra's checks on it did not finish within 5s, so the look stopped there."]);
-    assert.ok(look("held").notes.some((note) => note.startsWith("No picture was taken: ")), look("held").notes.join("\n"));
+    // Where the frozen page is caught depends on playwright-core: an older one never gives up on the
+    // picture, so ra's own limit stops it there; a newer one does, and then ra's checks run out of time.
+    assert.equal(said("held").length, 1, said("held").join("\n"));
+    assert.match(said("held")[0]!, /^busy: The page stopped answering/u);
     assert.deepEqual(said("home"), []);
   });
 
