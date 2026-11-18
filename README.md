@@ -22,7 +22,7 @@ The page runs inside a fake world: the API replies you write, the hosts you bloc
 ra needs Node 22.18 or later, on macOS or Linux. Install it from its GitHub release with npm, then look at a page of your running app:
 
 ```sh
-npm install -D https://github.com/hraness/ra/releases/download/v0.1.5/hraness-ra-0.1.5.tgz playwright-core
+npm install -D https://github.com/hraness/ra/releases/download/v0.1.6/hraness-ra-0.1.6.tgz playwright-core
 npx playwright-core install chromium
 npx ra look http://127.0.0.1:3000/ --at phone
 ```
@@ -45,7 +45,7 @@ The loop:
 3. For a change with a wide reach, run `ra snap` first and `ra diff` afterwards.
 4. Open a picture only when the words leave a doubt, such as how a gradient looks. Every look writes `.ra/look/<state>.<view>.png` (the first screen) and `.full.png` (the whole page).
 
-A look is short, and it is text the agent can act on. On ra's fixture site, a page with nothing wrong prints 52 lines, about 500 tokens: “no findings”, an outline whose lines map onto `getByRole`, a sketch of the layout, and where the pictures are. The broken page at phone prints 123 lines, about 1,900 tokens, for 37 findings.
+A look is short, and it is text the agent can act on. On ra's fixture site, a page with nothing wrong prints 52 lines, about 500 tokens: “no findings”, an outline whose lines map onto `getByRole`, a sketch of the layout, and where the pictures are. The broken page at phone prints 123 lines, about 1,900 tokens, for 37 findings. When one faint colour is used in many places, a look names the first ten texts and counts the rest.
 
 <details>
 <summary>A look at a page with nothing wrong, trimmed</summary>
@@ -171,7 +171,7 @@ Browser checks are slow, flaky when written carelessly, and easy to write in way
 ra needs Node 22.18 or later and a Playwright in your project: `playwright-core`, `playwright`, or `@playwright/test`. With Bun, install it like this:
 
 ```sh
-bun add -d https://github.com/hraness/ra/releases/download/v0.1.5/hraness-ra-0.1.5.tgz playwright-core
+bun add -d https://github.com/hraness/ra/releases/download/v0.1.6/hraness-ra-0.1.6.tgz playwright-core
 bunx --no-install playwright-core install chromium
 ```
 
@@ -416,7 +416,7 @@ ra runs on macOS and Linux and is tested with playwright-core 1.58 through 1.65.
 Each release on GitHub is immutable, with the packed tarball as its one asset, and GitHub records the asset's SHA-256. To check that a tarball came from a release:
 
 ```sh
-gh release verify-asset v0.1.5 hraness-ra-0.1.5.tgz -R hraness/ra
+gh release verify-asset v0.1.6 hraness-ra-0.1.6.tgz -R hraness/ra
 ```
 
 ra's browser tests run the CLI against [a fixture site](test/fixtures/site). Every kind of finding has a planted case in `broken.html`, and `tricky.html`, full of patterns that only look wrong, must stay clean. In a clone, run `bun install` and then `bun run check`, which runs the type check, the unit tests, and the build. The browser tests, `bun run test:browser`, need the Chromium that the pinned playwright-core installs: `node node_modules/playwright-core/cli.js install chromium`.

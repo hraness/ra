@@ -67,6 +67,7 @@ ra photographs the page twice, once as it is and once with every glyph made tran
 - Left alone: text inside a picture (`role="img"`) that holds nothing Tab reaches, whose look is the picture's business.
 - On touch views, both pictures keep the layout for a finger that ra measured, although the browser matches a mouse while it photographs beyond the screen.
 - Left alone: text off the screen where a fixed layer lies, as it does when steps leave the page scrolled or a fixed layer is moved off the screen. The pictures paint the layer there, although the screen never shows it over that text.
+- One faint colour is often used in many places, and each text that uses it is a finding. The printed report names the first ten texts that share the same colours and counts the rest, so that one colour does not bury the other findings. The count of findings, the exit code and `--json` leave none out.
 
 ### `small-target`
 

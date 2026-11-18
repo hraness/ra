@@ -17,7 +17,7 @@ import type { Box } from "../src/inspect.ts";
 import { applyAccepts, type Finding, type Observation } from "../src/observe.ts";
 import { outlineOf } from "../src/outline.ts";
 import { comparePixels, decodePng, encodePng, frame, type Image } from "../src/png.ts";
-import { checkText } from "../src/report.ts";
+import { checkText, lookText } from "../src/report.ts";
 import { closeSessions, openSession } from "../src/run.ts";
 import { allowsHost, closedWorldSwitches, findReply, isAppElsewhere, isOwnAddress, judge, reachableHosts, resolverSwitch, sameApp, startUpstreams, stoppedByClosedWorld } from "../src/world.ts";
 
@@ -568,6 +568,109 @@ describe("findings", () => {
     assert.deepEqual(used, [rule]);
     assert.equal(findings[0]!.accepted, "The hero is decorative.");
     assert.equal(findings[1]!.accepted, undefined);
+  });
+
+  /** A look with everything the printed text reads. */
+  const whole = (findings: Finding[]): Observation =>
+    ({
+      state: "list",
+      view: "desktop",
+      url: "http://127.0.0.1:1/list",
+      status: 200,
+      title: "List",
+      viewport: { width: 1440, height: 900 },
+      page: { width: 1440, height: 1200 },
+      requests: { total: 1, replied: 0, allowed: 0, blocked: 0, unexpected: 0 },
+      ms: 1000,
+      findings,
+      notes: [],
+      outline: [],
+      outlineFull: 0,
+      regions: [],
+      picture: null,
+      fullPicture: null,
+    }) as unknown as Observation;
+  /** A text that is too pale, worded as a look words it. */
+  const pale = (text: string, colour = "#828282"): Finding => ({
+    kind: "contrast",
+    message: `"${text}" has 3.5:1 contrast (${colour} on #f6f6ef); text this size needs 4.5:1.`,
+    where: `span.row "${text}"`,
+    selector: "",
+  });
+  const rows = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"].map((name) => `Row ${name}`);
+  const contrastLines = (text: string) => text.split("\n").filter((line) => line.startsWith("  contrast  "));
+
+  test("a look names the first ten texts of one colour and counts the rest", () => {
+    const text = lookText(
+      whole([
+        finding("no-name", "2 controls have no accessible name, starting with a."),
+        ...rows.map((row) => pale(row)),
+        pale("Another colour", "#999999"),
+        finding("spill", '"Supercalifragilistic" runs 119px past the right edge of its box, div.tight.'),
+      ]),
+    );
+    // Every finding is still counted, and the ones of other kinds and colours are all printed.
+    assert.match(text, /\n15 findings\n/u);
+    assert.equal(contrastLines(text).length, 11, text);
+    assert.match(text, / {2}no-name {3}2 controls have no accessible name, starting with a\.\n/u);
+    assert.match(text, / {2}spill {5}"Supercalifragilistic" runs 119px/u);
+    // The count sits under the tenth text, where "the same colours" has something to point at.
+    assert.ok(
+      text.includes(
+        '  contrast  "Row ten" has 3.5:1 contrast (#828282 on #f6f6ef); text this size needs 4.5:1.\n'
+          + '            at span.row "Row ten"\n'
+          + "            2 more texts have the same colours. --json lists every one.\n"
+          + '  contrast  "Another colour" has 3.5:1 contrast (#999999 on #f6f6ef); text this size needs 4.5:1.\n',
+      ),
+      text,
+    );
+    assert.doesNotMatch(text, /Row eleven|Row twelve/u);
+  });
+
+  test("a look prints ten texts of one colour whole, and says so in the singular for an eleventh", () => {
+    const ten = lookText(whole(rows.slice(0, 10).map((row) => pale(row))));
+    assert.equal(contrastLines(ten).length, 10, ten);
+    assert.doesNotMatch(ten, /the same colours/u);
+    const eleven = lookText(whole(rows.slice(0, 11).map((row) => pale(row))));
+    assert.equal(contrastLines(eleven).length, 10, eleven);
+    assert.match(eleven, /\n {12}1 more text has the same colours\. --json lists every one\.$/u);
+  });
+
+  test("a look counts each colour by itself, whatever the texts quote, and leaves accepted findings out of the count", () => {
+    // Two colours, turn about, and one text that quotes a contrast finding's own words.
+    const mixed = rows.flatMap((row) => [pale(row), pale(`${row}" has 9:1 contrast (#000000 on #ffffff); text this size needs 3:1. "`, "#999999")]);
+    const text = lookText(whole(mixed));
+    assert.match(text, /\n24 findings\n/u);
+    assert.equal(contrastLines(text).length, 20, text);
+    assert.equal(text.split("2 more texts have the same colours.").length - 1, 2, text);
+    // An accepted finding is printed as accepted, and is not one of the ten.
+    const accepted = lookText(whole(rows.slice(0, 11).map((row, index) => (index === 0 ? { ...pale(row), accepted: "Decorative." } : pale(row)))));
+    assert.match(accepted, /\n10 findings\n/u);
+    assert.equal(contrastLines(accepted).length, 10, accepted);
+    assert.doesNotMatch(accepted, /the same colours/u);
+    assert.match(accepted, / {2}accepted contrast: "Row one" has 3\.5:1 contrast .* \(Decorative\.\)/u);
+  });
+
+  test("a check report names ten texts of one colour for each set of views, and counts every finding", () => {
+    const states = [{ name: "list", url: "/list" }] as never;
+    const receipt = { executable: "/x/chromium-1/chrome", version: "1.0", playwright: "1.0.0", disabledFeatures: [], muted: true as const };
+    const options = { origin: "http://127.0.0.1:1", live: false, ms: 1000, receipt, notes: [], skipped: [], unused: [] };
+    // Twelve texts at both views, and twelve more that are pale only at phone.
+    const everywhere = rows.map((row) => pale(row));
+    const phoneOnly = rows.map((row) => pale(`${row}, small`));
+    const summary = checkText(states, [look("list", "desktop", everywhere), look("list", "phone", [...everywhere, ...phoneOnly])], options);
+    assert.equal(summary.ok, false);
+    assert.equal(summary.findings, 24);
+    assert.equal(contrastLines(summary.text).length, 20, summary.text);
+    assert.ok(
+      summary.text.includes('  contrast  "Row ten" has 3.5:1 contrast (#828282 on #f6f6ef); text this size needs 4.5:1.\n            at span.row "Row ten"\n            2 more texts have the same colours. --json lists every one.\n'),
+      summary.text,
+    );
+    assert.ok(
+      summary.text.includes('  contrast  "Row ten, small" has 3.5:1 contrast (#828282 on #f6f6ef); text this size needs 4.5:1. [phone]\n            at span.row "Row ten, small"\n            2 more texts have the same colours. --json lists every one. [phone]\n'),
+      summary.text,
+    );
+    assert.match(summary.text, /24 findings in 1 of 1 state\. Look closer: ra look list --at desktop/u);
   });
 
   test("a check report names views only for findings that show at some of them", () => {

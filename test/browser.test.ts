@@ -452,6 +452,42 @@ describe("ra look", () => {
     assert.match(ran.out, /\nbrowser: Chromium /u);
   });
 
+  test("takes --at more than once", async () => {
+    const ran = await ra(["look", "home", "--at", "phone", "--at", "desktop", "--json"]);
+    assert.equal(ran.status, 0, ran.err);
+    const { looks } = JSON.parse(ran.out) as { looks: Observation[] };
+    assert.deepEqual(looks.map((look) => look.view), ["phone", "desktop"]);
+  });
+
+  test("names the first ten texts of one colour and counts the rest, while the data keeps them all", async () => {
+    const project = mkdtempSync(join(scratch, "rows-"));
+    const rows = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+    writeFileSync(join(project, "index.html"), html("Rows", `<ul>${rows.map((row) => `<li style="color: #b9bdc7">Row ${row}</li>`).join("")}</ul>`));
+    writeFileSync(
+      join(project, "ra.config.ts"),
+      `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({ app: { static: "." }, views: ["desktop"], states: { rows: "/" } });
+`,
+    );
+    const said = await ra(["look", "rows"], project, 120_000);
+    assert.equal(said.status, 0, said.err);
+    const findings = said.out.slice(0, said.out.indexOf("\n\noutline"));
+    assert.match(findings, /\n12 findings\n/u);
+    assert.equal(findings.split("\n").filter((line) => line.startsWith("  contrast  ")).length, 10, findings);
+    assert.match(findings, /"Row ten" has 1\.9:1 contrast \(#b9bdc7 on #ffffff\); text this size needs 4\.5:1\.\n.*\n {12}2 more texts have the same colours\. --json lists every one\.$/u);
+    assert.doesNotMatch(findings, /Row eleven|Row twelve/u);
+    // The check says the same, and still fails on all twelve.
+    const checked = await ra(["check"], project, 120_000);
+    assert.equal(checked.status, 1, checked.err);
+    assert.match(checked.out, / {12}2 more texts have the same colours\. --json lists every one\.\n/u);
+    assert.match(checked.out, /12 findings in 1 of 1 state\./u);
+    const data = await ra(["look", "rows", "--json"], project, 120_000);
+    assert.equal(data.status, 0, data.err);
+    const [look] = (JSON.parse(data.out) as { looks: Observation[] }).looks;
+    assert.deepEqual(look!.findings.map((finding) => finding.kind), Array.from({ length: 12 }, () => "contrast"));
+    assert.ok(look!.findings.some((finding) => finding.message.startsWith('"Row twelve" has 1.9:1 contrast')));
+  });
+
   test("looks at an app that is already running, without a config", async () => {
     const app: RunningApp = await serveStatic(site);
     try {

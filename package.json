@@ -1,6 +1,6 @@
 {
   "name": "@hraness/ra",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "ra opens your web app in Chromium, inside a fake world you describe, and tells your coding agent in sentences what a person would find wrong.",
   "license": "MIT",
   "type": "module",
