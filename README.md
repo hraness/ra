@@ -27,7 +27,7 @@ npx playwright-core install chromium
 npx ra look http://127.0.0.1:3000/ --at phone
 ```
 
-If your project already has `playwright` or `@playwright/test`, leave `playwright-core` out and install the browser with `npx playwright install chromium`. That first look needs no config. It prints the findings, an outline of the page, and a sketch of its layout, and it writes pictures to `.ra/look/`. To check every screen at once, [name your states](#setting-up) and run `ra check`.
+If your project already has `playwright` or `@playwright/test`, leave `playwright-core` out and install the browser with `npx playwright install chromium`. That first look needs no config. It prints the findings, an outline of the page, a sketch of its layout, and where it wrote its pictures: a temporary folder for now, and `.ra/look/` once the project has a config. To check every screen at once, [name your states](#setting-up) and run `ra check`.
 
 ## For coding agents
 
