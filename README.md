@@ -4,9 +4,9 @@
 [![CI](https://github.com/hraness/ra/actions/workflows/ci.yml/badge.svg)](https://github.com/hraness/ra/actions/workflows/ci.yml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
-ra opens your web app in Chromium, inside a fake world you describe, and tells your coding agent in sentences what a person would find wrong. It is UI testing for coding agents, made to run in the middle of a change.
+ra opens your web app in Chromium, inside a fake world you describe, and tells your coding agent in sentences what a person would find wrong. It is UI testing for agents, made to run in the middle of a change.
 
-The world is the API replies you write, the hosts you block, and stand-ins for the services your server calls. ra looks at each state you name, such as an empty inbox, a failed payment, or a name 80 characters long, on desktop, on a phone, and in dark mode. Each finding is one sentence that names the element and, where it can, says by how much. Boxes come from the layout engine and contrast from the painted pixels, so CI has no screenshot baselines to approve.
+A coding agent that checks a UI change with a screenshot leaves a model to judge it, and [models misjudge the measurements](#how-it-compares) that layout bugs come down to. ra measures them: boxes come from the layout engine and contrast from the painted pixels, so CI has no screenshot baselines to approve. Each finding is one sentence that names the element and, where it can, says by how much.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/media/ra-look-dark.png">
@@ -14,6 +14,8 @@ The world is the API replies you write, the hosts you block, and stand-ins for t
 </picture>
 
 That is `ra look broken --at phone` on [a fixture page](test/fixtures/site/broken.html) full of planted problems. Its twin, [`tricky.html`](test/fixtures/site/tricky.html), is full of things that only look wrong, and ra must print nothing for it.
+
+The page runs inside a fake world: the API replies you write, the hosts you block, and stand-ins for the services your server calls. A request that nothing in the world answers is stopped and reported. You name each state once, such as an empty inbox, a failed payment, or a name 80 characters long, and ra looks at it on desktop, on a phone, and in dark mode.
 
 ## Start
 
