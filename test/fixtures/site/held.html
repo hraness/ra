@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — Stops answering when held</title>
+    <link rel="stylesheet" href="/site.css" />
+    <style id="hover">
+      @media (hover: hover) { .hint { text-decoration: underline; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Stops answering when held</h1>
+      <p class="hint">Once ra holds this page's hover rule still for the pictures of a touch view, the page's script never gives the thread back.</p>
+    </main>
+    <script>
+      const media = document.getElementById("hover").sheet.cssRules[0].media;
+      const text = media.mediaText;
+      (function watch() {
+        if (media.mediaText !== text) for (;;) {}
+        requestAnimationFrame(watch);
+      })();
+    </script>
+  </body>
+</html>

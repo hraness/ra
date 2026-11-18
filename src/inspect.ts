@@ -472,7 +472,8 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     const home = control.getRootNode() as Document | ShadowRoot;
     const ids = `${control.getAttribute("aria-controls") ?? ""} ${control.getAttribute("aria-owns") ?? ""}`.split(/\s+/).filter(Boolean);
     const targets = ids.map((id) => home.getElementById(id)).filter((el): el is HTMLElement => el !== null);
-    for (const target of targets) addPopup(target);
+    // A panel that holds its own control is one that control collapses, not one it opened over the page.
+    for (const target of targets) if (!within(target, control)) addPopup(target);
     if (targets.length > 0) continue;
     // Nothing named: the panel it opened is a positioned box beside it.
     for (let sibling = control.nextElementSibling; sibling; sibling = sibling.nextElementSibling) if (positioned(sibling)) addPopup(sibling);
@@ -613,8 +614,12 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     let result = pictures.get(el);
     if (result === undefined) {
       const role = (el.getAttribute("role") ?? "").trim().toLowerCase().split(/\s+/)[0];
-      // One that holds something to Tab to is more than a picture, and its text is read as text.
-      const reachable = () => Array.from(el.querySelectorAll("*")).some((inner) => (inner as HTMLElement).tabIndex >= 0);
+      // One that holds something to Tab to is more than a picture, and its text is read as text. Tab passes over
+      // what is disabled, inert or hidden, and over a link with nowhere to go.
+      const reachable = () =>
+        Array.from(el.querySelectorAll("*")).some(
+          (inner) => (inner as HTMLElement).tabIndex >= 0 && !inner.matches("a:not([href]), area:not([href])") && usable(inner),
+        );
       result = ((role === "img" || role === "image") && !reachable()) || inPicture(parentOf(el));
       pictures.set(el, result);
     }
@@ -677,12 +682,28 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     count: number;
   }
   const spills = new Map<string, Spill>();
+  let painter: CanvasRenderingContext2D | null | undefined;
   const alphaOf = (color: string): number => {
     if (color === "transparent") return 0;
-    const match = /^rgba?\(([^)]+)\)$/.exec(color);
-    if (!match) return 1;
-    const parts = match[1]!.split(/[\s,/]+/).filter(Boolean);
-    return parts.length >= 4 ? Number(parts[3]) : 1;
+    // An sRGB color is computed as rgb(r, g, b) or rgba(r, g, b, a).
+    const legacy = /^rgba?\(([^()/]+)\)$/u.exec(color);
+    if (legacy) {
+      const parts = legacy[1]!.split(/[\s,]+/).filter(Boolean);
+      return parts.length >= 4 ? Number(parts[3]) : 1;
+    }
+    // Any other space keeps its own syntax, with the alpha after a slash: oklch(), oklab(), color(),
+    // and what color-mix() resolves to.
+    const slash = /^[a-z-]+\([^()]*\/\s*([\d.]+)(%?)\s*\)$/u.exec(color);
+    if (slash) return Number(slash[1]) / (slash[2] ? 100 : 1);
+    if (/^[a-z-]+\([^()/]*\)$/u.test(color)) return 1;
+    // Anything else, such as a color-mix() left unresolved: paint it, and read how much was painted.
+    painter ??= doc.createElement("canvas").getContext("2d", { willReadFrequently: true });
+    if (!painter) return 1;
+    painter.clearRect(0, 0, 1, 1);
+    painter.fillStyle = "#000000";
+    painter.fillStyle = color;
+    painter.fillRect(0, 0, 1, 1);
+    return painter.getImageData(0, 0, 1, 1).data[3]! / 255;
   };
   const hasSurface = (style: CSSStyleDeclaration) =>
     alphaOf(style.backgroundColor) > 0.05

@@ -28,9 +28,10 @@ interface Ran {
   err: string;
 }
 
-function ra(args: string[], cwd = site): Promise<Ran> {
+function ra(args: string[], cwd = site, limit?: number): Promise<Ran> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    // A limit ends a run that would otherwise hang the suite.
+    const child = spawn(process.execPath, [cli, ...args], { cwd, stdio: ["ignore", "pipe", "pipe"], ...(limit === undefined ? {} : { timeout: limit }) });
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
@@ -137,10 +138,14 @@ describe("ra check on the fixture site", () => {
       /^contrast: "Pale words under a drawing" has 1\.9:1 contrast/u,
       /^contrast: "Pale words inside a frame" has 1\.9:1 contrast/u,
       /^contrast: "White words under a pale veil" has 2\.1:1 contrast/u,
+      /^contrast: "White words under an oklch veil" has 2\.1:1 contrast/u,
+      /^contrast: "White words under a mixed veil" has 2\.1:1 contrast/u,
       /^contrast: "Pale words beside a clear wrapper\." has 1\.9:1 contrast/u,
       // A menu bar and a list that are part of the page are not open popups.
       /^covered: link "A link the menu bar hides" is covered by /u,
       /^covered: button "Continue" is covered by /u,
+      // A sidebar whose own control would close it was not opened over the page.
+      /^covered: link "A link the open sidebar hides" is covered by /u,
       // A control hidden from screen readers that Tab still reaches.
       /^no-name: 2 controls have no accessible name, starting with button\.button\./u,
       // A picture that holds a link is checked as text.
@@ -231,16 +236,18 @@ export default defineConfig({
     // A page that keeps changing is waited for up to 2.5s, longer than the timeout itself.
     moving: { url: "/", steps: (page) => page.evaluate(() => { setInterval(() => { document.documentElement.dataset.tick = String(Date.now()); }, 50); }) },
     late: { url: "/late" },
+    // On a touch view, the page freezes once ra holds its hover rule for the pictures.
+    held: { url: "/held", views: ["phone"] },
     home: { url: "/" },
   },
 });
 `,
     );
     const started = performance.now();
-    const ran = await ra(["check", "--json"], copy);
+    const ran = await ra(["check", "--json"], copy, 120_000);
     const took = performance.now() - started;
     assert.equal(ran.status, 1, ran.err);
-    assert.ok(took < 30_000, `ra ended ${Math.round(took / 1000)}s after it started`);
+    assert.ok(took < 45_000, `ra ended ${Math.round(took / 1000)}s after it started`);
     const looks = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
     const look = (state: string) => looks.find((candidate) => candidate.state === state)!;
     const said = (state: string) => look(state).findings.map((finding) => `${finding.kind}: ${finding.message}`);
@@ -255,7 +262,24 @@ export default defineConfig({
       said("late").some((line) => /^busy: The page stopped answering for [\d.]+s while ra waited for it to settle, so the look stopped there\.$/u.test(line)),
       said("late").join("\n"),
     );
+    assert.deepEqual(said("held"), ["busy: The page stopped answering: ra's checks on it did not finish within 5s, so the look stopped there."]);
+    assert.ok(look("held").notes.some((note) => note.startsWith("No picture was taken: ")), look("held").notes.join("\n"));
     assert.deepEqual(said("home"), []);
+  });
+
+  test("waits as long as the largest timeout, which Node's timers can just hold", async () => {
+    const copy = copySite();
+    writeFileSync(
+      join(copy, "ra.config.ts"),
+      `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({ app: { static: "." }, views: ["desktop"], timeout: 2147483647, states: { home: { url: "/" } } });
+`,
+    );
+    const ran = await ra(["check", "--json"], copy, 120_000);
+    assert.equal(ran.status, 0, ran.err);
+    assert.doesNotMatch(ran.err, /TimeoutOverflowWarning/u);
+    const [look] = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+    assert.deepEqual(look!.findings, []);
   });
 });
 

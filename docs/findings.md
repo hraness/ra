@@ -44,7 +44,7 @@ Two pieces of text are painted on top of each other in the same layer.
 Something sits over the centre of a control, so a click or tap there would land on that instead. ra hit-tests each control in view while it scrolls through the page.
 
 - Left alone: a label covering its own input; checkbox, radio, file and range inputs, which custom controls often draw over on purpose; and controls that are nearly transparent.
-- Left alone: controls under an open dialog or popover, a menu, listbox or dialog that floats over the page (positioned absolute or fixed), or the panel that an expanded control has opened. Covering them is what it is there for. A menu bar or a list that is part of the page is judged like anything else.
+- Left alone: controls under an open dialog or popover, a menu, listbox or dialog that floats over the page (positioned absolute or fixed), or the panel that an expanded control has opened. Covering them is what it is there for. A menu bar or a list that is part of the page is judged like anything else, and so is a panel that holds its own expanded control, such as a sidebar with the button that hides it.
 - Left alone: a skip link clipped to nothing until it has focus.
 - An overlay is named as a whole, not by the paragraph inside it that happened to be hit.
 

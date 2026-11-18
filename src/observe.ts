@@ -5,7 +5,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Browser, Page, Request } from "playwright-core";
-import type { Accept, Call, Project, Reached, State, View } from "./config.ts";
+import { LONGEST_WAIT, type Accept, type Call, type Project, type Reached, type State, type View } from "./config.ts";
 import { findLowContrast } from "./contrast.ts";
 import { inspectPage, type Box, type InspectOptions, type Region } from "./inspect.ts";
 import { outlineOf } from "./outline.ts";
@@ -123,7 +123,8 @@ async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page[
       "busy",
       stopped(limit, "showed the text again"),
     ).catch(() => undefined);
-    await hidden.dispose().catch(() => undefined);
+    // Not waited for: a page that stopped answering may never confirm it, and closing the context frees it.
+    void hidden.dispose().catch(() => undefined);
   }
 }
 
@@ -282,7 +283,7 @@ async function inTouchLayout<T>(page: Page, touch: boolean, limit: number, take:
         "busy",
         stopped(limit, "let go of the touch layout"),
       ).catch(() => undefined);
-      await held.dispose().catch(() => undefined);
+      void held.dispose().catch(() => undefined);
     }
   }
 }
@@ -308,7 +309,8 @@ async function bounded<T>(work: Promise<T>, ms: number, kind: string, message: s
     return await Promise.race([
       work,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Overdue(kind, message)), ms);
+        // Node fires a longer timer at once, and the largest timeout with ra's own wait on top is longer.
+        timer = setTimeout(() => reject(new Overdue(kind, message)), Math.min(ms, LONGEST_WAIT));
       }),
     ]);
   } finally {

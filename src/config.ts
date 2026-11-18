@@ -348,8 +348,15 @@ function kindOf(value: unknown): string {
   return `a ${typeof value}`;
 }
 
+/** A wrong value as a message shows it: a string, number or boolean as written, anything else by its kind. */
+function shown(value: unknown): string {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return kindOf(value);
+}
+
 /** The longest a timer can wait: Node fires any longer or non-positive one at once. */
-const LONGEST_WAIT = 2_147_483_647;
+export const LONGEST_WAIT = 2_147_483_647;
 
 /** Checks a config and fills in what it leaves out. */
 export function readConfig(config: Config, root: string, file: string | null = null): Project {
@@ -358,14 +365,16 @@ export function readConfig(config: Config, root: string, file: string | null = n
   const timeout: unknown = config.timeout;
   if (timeout !== undefined && !(typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0 && timeout <= LONGEST_WAIT)) {
     throw new ConfigError(
-      `The timeout is ${typeof timeout === "number" ? String(timeout) : kindOf(timeout)}; it takes milliseconds above 0 and up to ${LONGEST_WAIT}, such as 30000.`,
+      `The timeout is ${shown(timeout)}; it takes milliseconds above 0 and up to ${LONGEST_WAIT}, such as 30000.`,
     );
   }
   checkWorld(config.world, "world");
   const custom = (config.views ?? []).filter((view): view is ViewSpec => typeof view !== "string");
   for (const view of custom) {
-    if (!/^[a-z][a-z0-9-]*$/u.test(view.name) || !(view.width > 0) || !(view.height > 0)) {
-      throw new ConfigError(`A view needs a lowercase name, a width and a height; got ${JSON.stringify(view)}.`);
+    const sized = (size: unknown) => typeof size === "number" && size > 0;
+    if (view === null || typeof view !== "object" || typeof view.name !== "string" || !/^[a-z][a-z0-9-]*$/u.test(view.name) || !sized(view.width) || !sized(view.height)) {
+      const got = view === null || typeof view !== "object" ? shown(view) : `name ${shown(view.name)}, width ${shown(view.width)} and height ${shown(view.height)}`;
+      throw new ConfigError(`A view needs a lowercase name, a width and a height; got ${got}.`);
     }
   }
   const viewNames = config.views === undefined ? ["desktop", "phone"] : config.views.map((view) => (typeof view === "string" ? view : view.name));
@@ -382,7 +391,7 @@ export function readConfig(config: Config, root: string, file: string | null = n
     }
     checkKeys(spec, STATE_KEYS, `State "${name}"`);
     if (spec.javascript !== undefined && typeof spec.javascript !== "boolean") {
-      throw new ConfigError(`State "${name}" has javascript set to ${kindOf(spec.javascript)}; it takes true or false.`);
+      throw new ConfigError(`State "${name}" has javascript set to ${shown(spec.javascript)}; it takes true or false.`);
     }
     checkWorld(spec.world, `State "${name}" world`);
     const { world, views: ownViews, accept, ...rest } = spec;

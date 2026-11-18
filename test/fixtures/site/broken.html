@@ -26,6 +26,9 @@
       .band { position: relative; padding: 12px; background: #222222; }
       .band p { margin: 0; color: #ffffff; }
       .wash { position: absolute; inset: 0; background: rgb(255 255 255 / 0.65); }
+      /* The same veil written in other color spaces, as a utility framework writes it. */
+      .wash.in-oklch { background: oklch(1 0 0 / 0.65); }
+      .wash.mixed { background: color-mix(in oklab, #ffffff 65%, transparent); }
       /* A clear wrapper, labelled as a dialog, round a small bar: it covers only where the bar is. */
       .clear { position: relative; padding-bottom: 56px; }
       .clear p { margin: 0; }
@@ -40,6 +43,10 @@
       .list-box { height: 60px; }
       .list-box ul { position: relative; z-index: 1; width: 240px; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); background: var(--paper); }
       .list-box li { padding: 2px 8px; }
+      /* A sidebar that holds the control that would close it, laid over the link beside it. */
+      .side-host { position: relative; min-height: 96px; }
+      .side-host p { margin: 0; }
+      .side { position: absolute; top: 0; bottom: 0; left: 0; width: 240px; padding: 48px 8px 8px; border-right: 1px solid var(--line); background: var(--paper); }
       /* A picture that holds a link is more than a picture. */
       .plan { max-width: 320px; padding: 16px; border: 1px solid var(--line); }
       .cut-link { display: inline-block; width: 80px; overflow: hidden; white-space: nowrap; vertical-align: top; }
@@ -60,6 +67,8 @@
         <div class="overlaid"><h2 class="pale">Pale words under a drawing</h2><svg class="ornament" width="100%" height="40" aria-hidden="true"><circle cx="99%" cy="8" r="4" fill="#ff6600" /></svg></div>
         <div class="overlaid"><p class="pale">Pale words inside a frame</p><div class="ring"></div></div>
         <div class="band"><p>White words under a pale veil</p><div class="wash"></div></div>
+        <div class="band"><p>White words under an oklch veil</p><div class="wash in-oklch"></div></div>
+        <div class="band"><p>White words under a mixed veil</p><div class="wash mixed"></div></div>
       </section>
 
       <section id="wide"><div class="too-wide">This box is 900 pixels wide whatever the screen is.</div></section>
@@ -102,6 +111,11 @@
           <ul role="listbox" aria-label="Plan"><li role="option" aria-selected="true">Free</li><li role="option" aria-selected="false">Team</li><li role="option" aria-selected="false">Business</li><li role="option" aria-selected="false">Enterprise</li></ul>
         </div>
         <button type="button">Continue</button>
+      </section>
+
+      <section id="sidebar" class="side-host">
+        <p><a href="#sidebar">A link the open sidebar hides</a></p>
+        <aside id="side-panel" class="side" aria-label="Sections"><button type="button" aria-expanded="true" aria-controls="side-panel">Hide the sidebar</button></aside>
       </section>
 
       <section id="picture-with-link"><div class="plan" role="img" aria-label="Team plan"><p class="pale">Billed yearly, cancel any time.</p><p><a class="cut-link" href="#trial">Start the free trial</a></p></div></section>
