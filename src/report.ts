@@ -33,6 +33,56 @@ function findingLines(finding: Finding, label: string, width: number, suffix = "
   return lines;
 }
 
+/** How many texts of one colour a report names before it counts the rest. */
+const NAMED = 10;
+
+/**
+ * What a contrast finding says after the text it quotes: the two colours, their ratio and the ratio the
+ * text needs. One faint colour gives this same ending to every text that uses it.
+ */
+function colours(finding: Finding): string | null {
+  if (finding.kind !== "contrast") return null;
+  const quoted = finding.message.lastIndexOf('" has ');
+  return quoted === -1 ? null : finding.message.slice(quoted + 2);
+}
+
+interface Named<T> {
+  item: T;
+  /** How many more had the same colours as this one, and go unnamed. */
+  more: number;
+}
+
+/**
+ * Keeps the first few texts of each colour and counts the rest on the last one kept. A faint colour used
+ * for every row of a list is one thing to fix, and a line for each row would bury the other findings. The
+ * findings themselves stay whole: the count above them, the exit code and --json leave none out.
+ */
+function nameFew<T>(items: readonly T[], colour: (item: T) => string | null): Named<T>[] {
+  const kept: Named<T>[] = [];
+  const byColour = new Map<string, Named<T>[]>();
+  for (const item of items) {
+    const key = colour(item);
+    const named = { item, more: 0 };
+    if (key === null) {
+      kept.push(named);
+      continue;
+    }
+    const same = byColour.get(key) ?? [];
+    byColour.set(key, same);
+    if (same.length < NAMED) {
+      same.push(named);
+      kept.push(named);
+    } else {
+      same[NAMED - 1]!.more += 1;
+    }
+  }
+  return kept;
+}
+
+function moreLine(more: number, width: number, suffix = ""): string {
+  return `  ${"".padEnd(width)}  ${more === 1 ? "1 more text has" : `${more} more texts have`} the same colours. --json lists every one.${suffix}`;
+}
+
 function requestsLine(observation: Observation): string {
   const { total, replied, allowed, blocked, unexpected } = observation.requests;
   const parts = [plural(total, "request")];
@@ -64,7 +114,10 @@ export function lookText(observation: Observation, options: LookTextOptions = {}
   } else {
     out.push(plural(open.length, "finding"));
     const width = Math.max(...open.map((finding) => finding.kind.length));
-    for (const finding of open) out.push(...findingLines(finding, finding.kind, width));
+    for (const { item, more } of nameFew(open, colours)) {
+      out.push(...findingLines(item, item.kind, width));
+      if (more > 0) out.push(moreLine(more, width));
+    }
   }
   for (const finding of accepted) out.push(`  accepted ${finding.kind}: ${finding.message} (${finding.accepted})`);
   for (const note of observation.notes) out.push(`note: ${note}`);
@@ -186,7 +239,15 @@ export function checkText(states: readonly State[], observations: readonly Obser
     firstFailure ??= { state: state.name, view: open[0]!.views[0]! };
     failing.push(`✗ ${state.name}  ${state.url}`);
     const width = Math.max(...open.map((group) => group.finding.kind.length));
-    for (const group of open) failing.push(...findingLines(group.finding, group.finding.kind, width, some(group)));
+    // Texts of one colour are counted together only when they show at the same views.
+    const sameColours = (group: Grouped) => {
+      const same = colours(group.finding);
+      return same === null ? null : `${same}\n${group.views.join("\n")}`;
+    };
+    for (const { item: group, more } of nameFew(open, sameColours)) {
+      failing.push(...findingLines(group.finding, group.finding.kind, width, some(group)));
+      if (more > 0) failing.push(moreLine(more, width, some(group)));
+    }
     // A failing state is shown whole, with the findings it accepts.
     for (const group of accepted) failing.push(`  accepted ${group.finding.kind}: ${group.finding.message}${some(group)} (${group.finding.accepted})`);
     failing.push(...notes);

@@ -308,13 +308,13 @@ async function doctor(project: Project, flags: Flags): Promise<number> {
 }
 
 async function main(argv: string[]): Promise<number> {
-  let parsed: { values: Flags; positionals: string[] };
+  let parsed: { values: Omit<Flags, "at"> & { at?: string[] }; positionals: string[] };
   try {
     parsed = parseArgs({
       args: argv,
       allowPositionals: true,
       options: {
-        at: { type: "string" },
+        at: { type: "string", multiple: true },
         in: { type: "string" },
         then: { type: "string" },
         full: { type: "boolean" },
@@ -330,7 +330,10 @@ async function main(argv: string[]): Promise<number> {
   } catch (error) {
     throw new UsageError(error instanceof Error ? error.message : String(error));
   }
-  const { values: flags, positionals } = parsed;
+  // --at phone --at desktop means the same as --at phone,desktop.
+  const { at, ...others } = parsed.values;
+  const flags: Flags = { ...others, ...(at === undefined ? {} : { at: at.join(",") }) };
+  const { positionals } = parsed;
   const [command, ...rest] = positionals;
   if (flags.version === true) {
     print(version());
