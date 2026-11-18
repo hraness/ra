@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — A page that cannot scroll</title>
+    <link rel="stylesheet" href="/site.css" />
+    <style>
+      /* The page hides its overflow, as a page does under an open dialog, so its reader cannot scroll the button
+         out from under the bar. */
+      html, body { overflow: hidden; }
+      .long { height: 2400px; }
+      .go { position: absolute; left: 16px; top: calc(100vh - 170px); height: 36px; }
+      .bar { position: fixed; left: 0; right: 0; bottom: 120px; height: 64px; margin: 0; padding: 12px 16px; box-sizing: border-box; background: #222; color: #fff; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>A page that cannot scroll</h1>
+      <button class="go" type="button">Continue</button>
+      <div class="long"></div>
+    </main>
+    <p class="bar">Ten percent off today</p>
+  </body>
+</html>

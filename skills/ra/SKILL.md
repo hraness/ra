@@ -54,6 +54,7 @@ browser: Chromium 158.0.8127.18, playwright-core 1.65.0, …
 
 - **The header** gives the address, status, title and page size. A page wider than the view means it scrolls sideways.
 - **The findings** are the point. Each one names the element (`at …`) and says by how much it is wrong. [`docs/findings.md`](../../docs/findings.md) says how each kind is decided.
+- **Notes** say what a look had to leave out, such as the part of a very long page below its first 40 screens. `ra check` prints them under their state, passing or not, and counts them in its last line.
 - **The outline** is what a screen reader would hear. Each line maps onto `getByRole(role, { name })`. Check copy, headings, labels and order here rather than in a picture.
 - **The layout** lists boxes with their sizes and positions in CSS pixels, with how the children of each are arranged. Check alignment, wrapping and stacking here.
 - **The pictures** are for what words cannot carry, such as a gradient, an illustration or whether something looks right at all.

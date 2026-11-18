@@ -8,6 +8,15 @@ export default defineConfig({
     tricky: { url: "/tricky", note: "Deliberate clipping, scrolling and hiding that must not be reported." },
     // An open modal dialog whose frame scrolls, over a dimmed and blurred page: clean too.
     dialog: { url: "/dialog", note: "A search dialog, open, with results scrolled out of its frame." },
+    // Steps leave a look where they put it, unscrolled. A row under the docked bar is not covered: the list
+    // can scroll it clear.
+    docked: {
+      url: "/docked",
+      views: ["phone"],
+      steps: async (page) => {
+        await page.getByRole("searchbox", { name: "Search" }).waitFor();
+      },
+    },
     // Scripts off: the page's fallback is what is looked at, and every check still runs.
     // Text inside <noscript> is out of reach of `see`, so `expect` finds it by CSS.
     noscript: {
@@ -19,7 +28,40 @@ export default defineConfig({
         if (!(await page.locator("noscript p.faint").isVisible())) throw new Error("The line inside <noscript> is not showing.");
       },
     },
+    // Scripts off: Chromium refuses the page's script preloads, which is not a problem.
+    "tricky-without-scripts": { url: "/tricky", views: ["desktop"], javascript: false },
+    // A jump leaves a link under the sticky header, and the facts above the screen where the moved skip
+    // link waits: neither is a problem.
+    "tricky-after-a-jump": {
+      url: "/tricky",
+      views: ["phone"],
+      steps: async (page) => {
+        await page.getByRole("link", { name: "Jump to where it lands" }).click();
+      },
+    },
     broken: { url: "/broken", note: "One of every problem." },
+    // Controls that stay put under a bar that stays put too: a scroll never brings them clear, so they are
+    // covered, whether ra scrolls the page or steps leave it where it is.
+    pinned: { url: "/pinned", views: ["phone"] },
+    "pinned-after-steps": {
+      url: "/pinned",
+      views: ["phone"],
+      steps: async (page) => {
+        await page.getByRole("button", { name: "Chat" }).waitFor();
+      },
+    },
+    // A page that hides its overflow cannot be scrolled, so a button under its bar stays covered.
+    "locked-after-steps": {
+      url: "/locked",
+      views: ["phone"],
+      steps: async (page) => {
+        await page.getByRole("button", { name: "Continue" }).waitFor();
+      },
+    },
+    // A full-screen menu that scrolls: the small icons below its fold are tap targets.
+    menu: { url: "/menu", views: ["phone"] },
+    // Scripts off too, but here the page's own policy refuses its stylesheet, which is.
+    refused: { url: "/refused", views: ["desktop"], javascript: false },
     untitled: { url: "/untitled", views: ["phone"] },
     // A strict Content-Security-Policy, which ra's own looking must not trip.
     strict: { url: "/strict", views: ["desktop"], note: "Two pale lines, one in a shadow root, on a page that allows no inline style." },

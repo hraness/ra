@@ -363,10 +363,76 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     }
     return el;
   };
+  /** Whether a box is where the fixed layers inside it are placed, so they move with it. */
+  const holdsFixed = (style: CSSStyleDeclaration) =>
+    style.transform !== "none" || style.filter !== "none" || style.perspective !== "none" || /paint|layout|strict|content/.test(style.contain);
+  /** Whether a point inside a control lies past the edge of a box around it that hides what overflows. */
+  const outOfSight = (el: Element, x: number, y: number): boolean => {
+    // Only the boxes that contain it can hide it: a fixed control escapes every box but one that holds fixed
+    // layers, and a positioned one escapes the unpositioned boxes between it and the box it is placed in.
+    let escape = cs(el).position;
+    for (let node = parentOf(el); node && node !== body && node !== root; node = parentOf(node)) {
+      const style = cs(node);
+      const holds = holdsFixed(style);
+      if (escape === "fixed" && !holds) continue;
+      if (escape === "absolute" && style.position === "static" && !holds) continue;
+      escape = style.position;
+      if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+      const box = node.getBoundingClientRect();
+      if (x < box.left || x > box.right || y < box.top || y > box.bottom) return true;
+    }
+    return false;
+  };
+  /**
+   * Whether a box that scrolls a control can move its middle out from under what covers it: the cover stays
+   * where it is while the box scrolls, such as a sticky header or a bar laid over a list, and the box has the
+   * room to scroll it clear.
+   */
+  const scrollsClear = (el: Element, cover: Element, y: number): boolean => {
+    const over = cover.getBoundingClientRect();
+    const pinned = (node: Element, upTo: Element | null) => {
+      for (let up: Element | null = node; up && up !== upTo; up = parentOf(up)) {
+        const position = cs(up).position;
+        if (position === "sticky") return true;
+        if (position === "fixed") {
+          // Fixed inside a box that holds fixed layers, such as a transformed wrapper, it moves with that box.
+          for (let holder = parentOf(up); holder && holder !== upTo && holder !== root; holder = parentOf(holder)) {
+            if (holdsFixed(cs(holder))) return false;
+          }
+          return true;
+        }
+      }
+      return false;
+    };
+    const boxes: Element[] = [];
+    for (let node = parentOf(el); node && node !== body && node !== root; node = parentOf(node)) {
+      const overflow = cs(node).overflowY;
+      if ((overflow === "auto" || overflow === "scroll") && node.scrollHeight > node.clientHeight + 1) boxes.push(node);
+    }
+    // A page that hides its overflow, as one does under an open dialog, cannot be scrolled by its user.
+    // The page's own overflow is the root's, or the body's when the root leaves it visible.
+    const viewport = cs(root).overflowY !== "visible" ? cs(root).overflowY : cs(body).overflowY;
+    if (viewport !== "hidden" && viewport !== "clip" && pageScroller.scrollHeight > vh + 1) boxes.push(pageScroller);
+    return boxes.some((box) => {
+      const page = box === pageScroller;
+      // A control that stays put while the box scrolls, such as a fixed chat button, is never scrolled clear.
+      if (pinned(el, page ? null : box)) return false;
+      if (page ? !pinned(cover, null) : within(box, cover) && !pinned(cover, box)) return false;
+      const sight = page ? { top: 0, bottom: vh } : box.getBoundingClientRect();
+      const up = box.scrollTop;
+      const down = box.scrollHeight - box.clientHeight - box.scrollTop;
+      // Scrolling the box on moves the control up, and back moves it down.
+      const rise = y - over.top + 1;
+      const fall = over.bottom - y + 1;
+      return (rise <= down && y - rise >= sight.top) || (fall <= up && y + fall <= sight.bottom);
+    });
+  };
   /** What sits over the centre of each control, for controls that are not on top there. */
   const coveredBy = new Map<Element, Element>();
   const tested = new Set<Element>();
-  const testControls = (from: number, to: number) => {
+  // A look that is not scrolled tests each control where it is; one that a scroller could move clear of its
+  // cover is not covered, as it would not be in a look that scrolls.
+  const testControls = (from: number, to: number, still = false) => {
     for (const el of Array.from(doc.querySelectorAll(CONTROLS))) {
       if (tested.has(el) || !usable(el)) continue;
       if (el instanceof HTMLInputElement && /^(?:checkbox|radio|file|range)$/.test(el.type)) continue;
@@ -375,28 +441,33 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       const x = rect.left + rect.width / 2;
       const y = rect.top + rect.height / 2;
       if (y < from || y > to || x < 0 || x > vw) continue;
+      // Scrolled out of sight inside a box: the box hides it, and nothing past the box's edge covers it.
+      if (outOfSight(el, x, y)) continue;
       tested.add(el);
       const top = topAt(x, y);
       if (!top || within(el, top) || within(top, el)) continue;
       const label = top.closest("label");
       if (label && el instanceof HTMLInputElement && Array.from(el.labels ?? []).includes(label)) continue;
+      if (still && scrollsClear(el, top, y)) continue;
       coveredBy.set(el, top);
     }
   };
 
   if (options.scroll && limit() > 0) {
-    // First pass: bring everything into view once so lazy content starts loading.
+    // Both passes go 40 screens down at most.
+    const half = Math.max(100, Math.floor(vh / 2));
+    const reach = 79 * half;
+    // First pass: bring everything into view once so lazy content starts loading. One frame at each place
+    // is enough: each scroll happens inside an animation frame, so that frame lays the page out there and
+    // tells its observers, which is what lazy images and an IntersectionObserver wait for.
     const stride = Math.max(200, Math.floor(vh * 0.9));
-    let steps = 0;
-    for (let top = 0; top < limit() && steps < 40; top += stride, steps++) {
+    for (let top = 0; top < Math.min(limit(), reach); top += stride) {
       scrollTo(top);
-      await frame();
       await frame();
     }
     scrollTo(limit());
     await frame();
     await frame();
-    if (steps >= 40) notes.push("The page is very long; only its first 40 screens were scrolled through.");
     scrollTo(0);
     await frame();
     const deadline = performance.now() + 3000;
@@ -404,20 +475,21 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     await frame();
     // Second pass: test each control while it sits near the middle of the screen,
     // where a sticky header or footer has no business covering it.
-    const half = Math.max(100, Math.floor(vh / 2));
     const end = limit();
-    for (let top = 0, count = 0; count < 80; top += half, count++) {
-      const at = Math.min(top, end);
+    let at = 0;
+    for (let top = 0; ; top += half) {
+      at = Math.min(top, end);
       scrollTo(at);
       await frame();
       testControls(at === 0 ? 0 : vh * 0.25, at >= end ? vh : vh * 0.75);
-      if (at >= end) break;
+      if (at >= end || top >= reach) break;
     }
+    if (at < end) notes.push(`The page is ${px(scroller.scrollHeight)} tall; ra scrolled through its first 40 screens, so no control below them was tested for being covered.`);
     scrollTo(0);
     await frame();
     await frame();
   } else {
-    testControls(0, vh);
+    testControls(0, vh, true);
   }
 
   // Finish what is still moving, so measurements and pictures agree.
@@ -491,9 +563,14 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     or: Element | null;
     ot: Element | null;
     ob: Element | null;
-    /** Content can be scrolled into view sideways or vertically, so being out of sight is not being cut off. */
-    sx: boolean;
-    sy: boolean;
+    /**
+     * What lies past that edge can be scrolled into view, so being out of sight there is not being cut off.
+     * Each edge has its own: a box that hides its overflow cuts only at the edges where it is the tighter one.
+     */
+    sl: boolean;
+    sr: boolean;
+    st: boolean;
+    sb: boolean;
     /** What can be seen right now: the edges of every box that does not show its overflow, scrollers included. */
     vl: number;
     vr: number;
@@ -501,12 +578,10 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     vb: number;
   }
   const OPEN: Clip = {
-    l: -Infinity, r: Infinity, t: -Infinity, b: Infinity, ol: null, or: null, ot: null, ob: null, sx: false, sy: false,
+    l: -Infinity, r: Infinity, t: -Infinity, b: Infinity, ol: null, or: null, ot: null, ob: null, sl: false, sr: false, st: false, sb: false,
     vl: -Infinity, vr: Infinity, vt: -Infinity, vb: Infinity,
   };
-  const SCREEN: Clip = { l: 0, r: vw, t: 0, b: vh, ol: root, or: root, ot: root, ob: root, sx: false, sy: false, vl: 0, vr: vw, vt: 0, vb: vh };
-  const holdsFixed = (style: CSSStyleDeclaration) =>
-    style.transform !== "none" || style.filter !== "none" || style.perspective !== "none" || /paint|layout|strict|content/.test(style.contain);
+  const SCREEN: Clip = { l: 0, r: vw, t: 0, b: vh, ol: root, or: root, ot: root, ob: root, sl: false, sr: false, st: false, sb: false, vl: 0, vr: vw, vt: 0, vb: vh };
   const clips = new Map<Element, Clip>();
   /** The clip applied to an element's own box by what contains it. */
   const clipOn = (el: Element): Clip => {
@@ -569,29 +644,29 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
           if (right < clip.r) {
             clip.r = right;
             clip.or = el;
-            clip.sx = false;
+            clip.sr = false;
           }
           if (left > clip.l) {
             clip.l = left;
             clip.ol = el;
-            clip.sx = false;
+            clip.sl = false;
           }
         } else if (x !== "visible" && el.scrollWidth > el.clientWidth + 1) {
-          clip.sx = true;
+          clip.sl = clip.sr = true;
         }
         if (y === "hidden" || y === "clip") {
           if (bottom < clip.b) {
             clip.b = bottom;
             clip.ob = el;
-            clip.sy = false;
+            clip.sb = false;
           }
           if (top > clip.t) {
             clip.t = top;
             clip.ot = el;
-            clip.sy = false;
+            clip.st = false;
           }
         } else if (y !== "visible" && el.scrollHeight > el.clientHeight + 1) {
-          clip.sy = true;
+          clip.st = clip.sb = true;
         }
       }
     }
@@ -727,25 +802,21 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     let below = 0;
     let inSight = 0;
     for (const rect of run.rects) {
-      if (!clip.sx) {
-        if (clip.or && rect.right > clip.r + 2 && rect.left < clip.r - 2 && !trims(clip.or)) {
-          cutBy(clip.or, "right", run.el, run.text, `${px(rect.right - clip.r)} hidden`);
-        }
-        if (clip.ol && rect.left < clip.l - 2 && rect.right > clip.l + 2 && !trims(clip.ol)) {
-          cutBy(clip.ol, "left", run.el, run.text, `${px(clip.l - rect.left)} hidden`);
-        }
+      if (!clip.sr && clip.or && rect.right > clip.r + 2 && rect.left < clip.r - 2 && !trims(clip.or)) {
+        cutBy(clip.or, "right", run.el, run.text, `${px(rect.right - clip.r)} hidden`);
       }
-      if (!clip.sy) {
-        const enough = Math.max(3, rect.height * 0.25);
-        if (clip.ob && rect.top >= clip.b - 1) {
-          below++;
-        } else if (clip.ob && rect.bottom > clip.b + enough && !clamps(clip.ob)) {
-          cutBy(clip.ob, "bottom", run.el, run.text, `${px(rect.bottom - clip.b)} hidden`);
-        } else if (clip.ot && rect.top < clip.t - enough && rect.bottom > clip.t + 2) {
-          cutBy(clip.ot, "top", run.el, run.text, `${px(clip.t - rect.top)} hidden`);
-        } else if (rect.bottom > clip.t && rect.left < clip.r && rect.right > clip.l) {
-          inSight++;
-        }
+      if (!clip.sl && clip.ol && rect.left < clip.l - 2 && rect.right > clip.l + 2 && !trims(clip.ol)) {
+        cutBy(clip.ol, "left", run.el, run.text, `${px(clip.l - rect.left)} hidden`);
+      }
+      const enough = Math.max(3, rect.height * 0.25);
+      if (!clip.sb && clip.ob && rect.top >= clip.b - 1) {
+        below++;
+      } else if (!clip.sb && clip.ob && rect.bottom > clip.b + enough && !clamps(clip.ob)) {
+        cutBy(clip.ob, "bottom", run.el, run.text, `${px(rect.bottom - clip.b)} hidden`);
+      } else if (!clip.st && clip.ot && rect.top < clip.t - enough && rect.bottom > clip.t + 2) {
+        cutBy(clip.ot, "top", run.el, run.text, `${px(clip.t - rect.top)} hidden`);
+      } else if (!clip.sb && rect.bottom > clip.t && rect.left < clip.r && rect.right > clip.l) {
+        inSight++;
       }
     }
     if (below > 0 && inSight > 0 && clip.ob && clip.ob !== body && clip.ob !== root && !clamps(clip.ob)) {
@@ -794,17 +865,21 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     }
   }
 
-  // Controls cut off by what contains them.
+  // Controls cut off by what contains them. Pushed past a side that does not scroll, a control is cut off
+  // however little of it still shows, such as an icon whose last pixels are all that is left of it.
   for (const el of Array.from(doc.querySelectorAll(CONTROLS))) {
     if (!usable(el) || !subject(el)) continue;
     const clip = clipOn(el);
     const rect = el.getBoundingClientRect();
-    if (!clip.sx && clip.or && rect.right > clip.r + 4 && rect.left < clip.r - 4) {
+    if (!clip.sr && clip.or && rect.right > clip.r + 4 && rect.left < clip.r - 1) {
       cutBy(clip.or, "right", el, nameOf(el) || tagOf(el), `${px(rect.right - clip.r)} hidden`);
-    } else if (!clip.sx && clip.ol && rect.left < clip.l - 4 && rect.right > clip.l + 4) {
+    } else if (!clip.sl && clip.ol && rect.left < clip.l - 4 && rect.right > clip.l + 1) {
       cutBy(clip.ol, "left", el, nameOf(el) || tagOf(el), `${px(clip.l - rect.left)} hidden`);
-    } else if (!clip.sy && clip.ob && clip.ob !== root && rect.bottom > clip.b + 4 && rect.top < clip.b - 4) {
+    } else if (!clip.sb && clip.ob && clip.ob !== root && rect.bottom > clip.b + 4 && rect.top < clip.b - 4) {
       cutBy(clip.ob, "bottom", el, nameOf(el) || tagOf(el), `${px(rect.bottom - clip.b)} hidden`);
+    } else if (!clip.st && clip.ot && clip.ot !== root && rect.top < clip.t - 4 && rect.bottom > clip.t + 4) {
+      // The top edge too: a control there is out of sight for `covered`, so this is where it is reported.
+      cutBy(clip.ot, "top", el, nameOf(el) || tagOf(el), `${px(clip.t - rect.top)} hidden`);
     }
   }
   for (const item of cuts.values()) {
@@ -837,14 +912,34 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     }
     return body;
   };
-  const lines: Array<{ el: Element; text: string; rect: DOMRect; layer: Element }> = [];
+  // Only what its boxes leave of a line can lie over other text: a box that hides its overflow ends the rest,
+  // an ellipsis included. A scroller hides only for now. Two lines in the same scroller move together, so the
+  // reader meets the clash wherever it is; a line in another one is compared by what its scroller shows.
+  const lines: Array<{ el: Element; text: string; rect: DOMRect; seen: DOMRect | null; scroller: Element | null; layer: Element }> = [];
+  const scrollerOf = (el: Element): Element | null => {
+    for (let node = parentOf(el); node && node !== body && node !== root; node = parentOf(node)) {
+      const s = cs(node);
+      if (/^(?:auto|scroll)$/.test(s.overflowX) || /^(?:auto|scroll)$/.test(s.overflowY)) return node;
+    }
+    return null;
+  };
   for (const run of runs) {
     if (!subject(run.el) || inPicture(run.el)) continue;
     const clip = clipWithin(run.el);
     const layer = layerOf(run.el);
+    const scroller = scrollerOf(run.el);
     for (const rect of run.rects) {
-      if (rect.right <= clip.l || rect.left >= clip.r || rect.bottom <= clip.t || rect.top >= clip.b) continue;
-      lines.push({ el: run.el, text: run.text, rect, layer });
+      const left = Math.max(rect.left, clip.l);
+      const right = Math.min(rect.right, clip.r);
+      const top = Math.max(rect.top, clip.t);
+      const bottom = Math.min(rect.bottom, clip.b);
+      if (right <= left || bottom <= top) continue;
+      const sl = Math.max(left, clip.vl);
+      const sr = Math.min(right, clip.vr);
+      const st = Math.max(top, clip.vt);
+      const sb = Math.min(bottom, clip.vb);
+      const seen = sr > sl && sb > st ? new DOMRect(sl, st, sr - sl, sb - st) : null;
+      lines.push({ el: run.el, text: run.text, rect: new DOMRect(left, top, right - left, bottom - top), seen, scroller, layer });
     }
   }
   lines.sort((a, b) => a.rect.top - b.rect.top);
@@ -856,10 +951,14 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       const b = lines[j]!;
       if (a.el === b.el || a.layer !== b.layer || within(a.el, b.el) || within(b.el, a.el)) continue;
       if (clashes.has(a.el) || clashes.has(b.el)) continue;
-      const width = Math.min(a.rect.right, b.rect.right) - Math.max(a.rect.left, b.rect.left);
-      const height = Math.min(a.rect.bottom, b.rect.bottom) - Math.max(a.rect.top, b.rect.top);
+      const same = a.scroller === b.scroller;
+      const ar = same ? a.rect : a.seen;
+      const br = same ? b.rect : b.seen;
+      if (!ar || !br) continue;
+      const width = Math.min(ar.right, br.right) - Math.max(ar.left, br.left);
+      const height = Math.min(ar.bottom, br.bottom) - Math.max(ar.top, br.top);
       if (width < 4 || height < 4) continue;
-      const smaller = Math.min(a.rect.width * a.rect.height, b.rect.width * b.rect.height);
+      const smaller = Math.min(ar.width * ar.height, br.width * br.height);
       if (width * height < smaller * 0.4) continue;
       clashes.add(a.el);
       clashes.add(b.el);
@@ -879,7 +978,7 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       const rect = el.getBoundingClientRect();
       if (rect.right <= vw + 1 || rect.left >= pageScroller.scrollWidth) continue;
       const clip = clipOn(el);
-      if (clip.r <= vw + 1 || clip.sx) continue;
+      if (clip.r <= vw + 1 || clip.sr) continue;
       let pinned = false;
       for (let node: Element | null = el; node && node !== body; node = parentOf(node)) {
         if (cs(node).position === "fixed") {
@@ -939,10 +1038,60 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
 
   if (options.touch) {
     const least = options.tapTarget;
+    // A control on a layer that does not scroll, moved off the screen, such as a skip link until it has focus,
+    // cannot be tapped at all.
+    const offScreen = (el: Element) => {
+      const rect = el.getBoundingClientRect();
+      if (rect.right > 0 && rect.left < vw && rect.bottom > 0 && rect.top < vh) return false;
+      for (let node: Element | null = el; node && node !== body; node = parentOf(node)) {
+        const s = cs(node);
+        // A scroller between it and the fixed layer, such as a full-screen menu, can bring it onto the screen.
+        if (node !== el && (/^(?:auto|scroll)$/.test(s.overflowY) || /^(?:auto|scroll)$/.test(s.overflowX))) return false;
+        if (s.position === "fixed") return true;
+      }
+      return false;
+    };
+    // WCAG 2.5.8's inline exception: a link in a sentence is as tall as its line, even inside spans of its own.
+    const inSentence = (el: Element): boolean => {
+      if (cs(el).display !== "inline") return false;
+      for (let node = el.parentNode; node; node = node.parentNode) {
+        if (Array.from(node.childNodes).some((child) => child.nodeType === 3 && squash(child.nodeValue).length > 1)) return true;
+        if (!(node instanceof Element) || node === body || cs(node).display !== "inline") return false;
+      }
+      return false;
+    };
     const targets = controls
-      .filter((el) => !(el instanceof HTMLInputElement && Number(cs(el).opacity) < 0.1))
+      .filter((el) => !(el instanceof HTMLInputElement && Number(cs(el).opacity) < 0.1) && !offScreen(el))
       .map((el) => {
         let { left, top, right, bottom } = el.getBoundingClientRect();
+        // A tap on anything a control holds reaches it, such as a transparent input laid over a small label,
+        // unless the control hides what overflows it.
+        const own = cs(el);
+        if (own.overflowX === "visible" && own.overflowY === "visible") {
+          const self = el.getBoundingClientRect();
+          for (const inner of Array.from(el.querySelectorAll("*"))) {
+            const style = cs(inner);
+            // Not text kept for screen readers, not the part a box inside hides, and not what floats clear of
+            // the control, such as a tooltip: none of those is a place to tap it.
+            if (style.pointerEvents === "none" || style.visibility === "hidden" || style.display === "none" || forReadersOnly(inner)) continue;
+            let { left: l, top: t, right: r, bottom: b } = inner.getBoundingClientRect();
+            for (let up = parentOf(inner); up && up !== el; up = parentOf(up)) {
+              const s = cs(up);
+              if (s.overflowX === "visible" && s.overflowY === "visible") continue;
+              const box = up.getBoundingClientRect();
+              l = Math.max(l, box.left);
+              t = Math.max(t, box.top);
+              r = Math.min(r, box.right);
+              b = Math.min(b, box.bottom);
+            }
+            if (r - l <= 0 || b - t <= 0) continue;
+            if (r < self.left || l > self.right || b < self.top || t > self.bottom) continue;
+            left = Math.min(left, l);
+            top = Math.min(top, t);
+            right = Math.max(right, r);
+            bottom = Math.max(bottom, b);
+          }
+        }
         if (el instanceof HTMLInputElement) {
           for (const label of Array.from(el.labels ?? [])) {
             const rect = label.getBoundingClientRect();
@@ -968,8 +1117,7 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       const height = target.bottom - target.top;
       if (width >= least - 0.5 && height >= least - 0.5) return;
       const el = target.el;
-      // A link inside a sentence is as tall as its line; that is allowed.
-      if (cs(el).display === "inline" && Array.from(el.parentNode?.childNodes ?? []).some((node) => node.nodeType === 3 && squash(node.nodeValue).length > 1)) return;
+      if (inSentence(el)) return;
       // Small is fine when nothing else is near enough to hit by mistake.
       const mine = grown[index]!;
       const crowded = grown.some((other, at) => {
@@ -1159,6 +1307,9 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
   const sampled = new Set<Element>();
   const offsetX = window.scrollX;
   const offsetY = window.scrollY;
+  // The full picture paints a layer that does not scroll where it is at the current scroll offset, and
+  // there it can lie over text scrolled out of sight, which it never covers on the screen.
+  const pinned = all.filter((el) => cs(el).position === "fixed" && visible(el)).map((el) => ({ el, box: el.getBoundingClientRect() }));
   for (const run of runs) {
     if (texts.length >= 2500) break;
     if (sampled.has(run.el) || !subject(run.el) || inPicture(run.el) || !/[\p{L}\p{N}]/u.test(run.text)) continue;
@@ -1177,6 +1328,8 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     const right = Math.min(rect.right, clip.r, clip.vr);
     const bottom = Math.min(rect.bottom, clip.b, clip.vb);
     if (right - left < 3 || bottom - top < 3 || hiddenUnder(run.el, left, top, right, bottom)) continue;
+    const offScreen = top < 0 || bottom > vh || left < 0 || right > vw;
+    if (offScreen && pinned.some(({ el, box }) => !within(el, run.el) && box.left < right && box.right > left && box.top < bottom && box.bottom > top)) continue;
     texts.push({
       where: describe(run.el),
       text: cut(run.text, 40),

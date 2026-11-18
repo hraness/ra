@@ -112,7 +112,11 @@ export interface StateSpec {
   /** Views for this state, instead of the project's. */
   views?: string[];
   accept?: Accept[];
-  /** Set false to keep ra from scrolling through the page. States with `steps` are never scrolled. */
+  /**
+   * Whether ra scrolls through the page, testing each control as it passes the middle of the screen. A state
+   * without `steps` is scrolled unless this is false; a state with `steps` is looked at where they leave it
+   * unless this is true.
+   */
   scroll?: boolean;
   /** Whether this state can also be looked at on a deployment. States with a world or steps are local unless marked. */
   live?: boolean;

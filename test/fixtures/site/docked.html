@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — A list under a docked search bar</title>
+    <link rel="stylesheet" href="/site.css" />
+    <style>
+      /* An app's screen: the list scrolls inside it, and its padding lets every row scroll clear of the bar. */
+      .screen { position: relative; height: 100vh; overflow: hidden; }
+      .list { position: absolute; inset: 0; margin: 0; padding: 0 0 120px; overflow-y: auto; list-style: none; }
+      .list button { display: block; width: 100%; height: 85px; padding: 0 16px; border: 0; border-bottom: 1px solid var(--line); background: var(--paper); color: var(--ink); font: inherit; text-align: start; }
+      /* The search bar floats over the foot of the list on a fade; only the field takes a tap. */
+      .dock { position: absolute; inset: auto 0 0; height: 110px; background: linear-gradient(transparent, var(--paper) 70%); pointer-events: none; }
+      .dock label { position: absolute; left: 16px; right: 72px; bottom: 16px; height: 48px; display: flex; align-items: center; padding: 0 16px; border-radius: 24px; background: var(--wash); pointer-events: auto; }
+      .dock input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); font: inherit; }
+    </style>
+  </head>
+  <body>
+    <main class="screen">
+      <h1 class="sr-only">Messages</h1>
+      <ul class="list">
+        <li><button type="button">Row 1</button></li>
+        <li><button type="button">Row 2</button></li>
+        <li><button type="button">Row 3</button></li>
+        <li><button type="button">Row 4</button></li>
+        <li><button type="button">Row 5</button></li>
+        <li><button type="button">Row 6</button></li>
+        <li><button type="button">Row 7</button></li>
+        <li><button type="button">Row 8</button></li>
+        <li><button type="button">Row 9</button></li>
+        <li><button type="button">Row 10</button></li>
+      </ul>
+      <div class="dock"><label><input type="search" placeholder="Search" aria-label="Search" /></label></div>
+    </main>
+  </body>
+</html>

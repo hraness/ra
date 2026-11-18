@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — A full-screen menu</title>
+    <link rel="stylesheet" href="/site.css" />
+    <style>
+      /* A fixed menu over the whole screen that scrolls, with small icons close together below its fold. */
+      .menu { position: fixed; inset: 0; overflow-y: auto; padding: 16px; background: var(--paper); }
+      .menu ul { margin: 0; padding: 0; list-style: none; }
+      .menu li a { display: block; padding: 16px 0; }
+      .social a { display: inline-block; width: 16px; height: 16px; margin-right: 4px; background: var(--ink); vertical-align: middle; }
+    </style>
+  </head>
+  <body>
+    <main><h1>A page under its menu</h1></main>
+    <nav class="menu" aria-label="Menu">
+      <ul>
+        <li><a href="/">Section 1</a></li>
+        <li><a href="/">Section 2</a></li>
+        <li><a href="/">Section 3</a></li>
+        <li><a href="/">Section 4</a></li>
+        <li><a href="/">Section 5</a></li>
+        <li><a href="/">Section 6</a></li>
+        <li><a href="/">Section 7</a></li>
+        <li><a href="/">Section 8</a></li>
+        <li><a href="/">Section 9</a></li>
+        <li><a href="/">Section 10</a></li>
+        <li><a href="/">Section 11</a></li>
+        <li><a href="/">Section 12</a></li>
+        <li><a href="/">Section 13</a></li>
+        <li><a href="/">Section 14</a></li>
+        <li><a href="/">Section 15</a></li>
+        <li><a href="/">Section 16</a></li>
+      </ul>
+      <p class="social"><a href="/" aria-label="Mail us"></a><a href="/" aria-label="Call us"></a><a href="/" aria-label="Find us"></a></p>
+    </nav>
+  </body>
+</html>

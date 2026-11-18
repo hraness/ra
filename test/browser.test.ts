@@ -47,6 +47,12 @@ function kinds(looks: Observation[], state: string, view: string): string[] {
   return look.findings.map((finding) => finding.kind).sort();
 }
 
+function messages(looks: Observation[], state: string, view: string): string[] {
+  const look = looks.find((candidate) => candidate.state === state && candidate.view === view);
+  assert.ok(look !== undefined, `no look at ${state} through ${view}`);
+  return look.findings.map((finding) => `${finding.kind}: ${finding.message}`);
+}
+
 /** A small page with nothing wrong on it. */
 function html(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head><body><main><h1>${title}</h1>${body}</main></body></html>`;
@@ -81,10 +87,25 @@ describe("ra check on the fixture site", () => {
 
   test("finds nothing on the control page or on deliberate clipping and scrolling", () => {
     for (const view of ["desktop", "phone", "phone.dark"]) {
-      assert.deepEqual(kinds(looks, "home", view), [], `home at ${view}`);
-      assert.deepEqual(kinds(looks, "tricky", view), [], `tricky at ${view}`);
+      assert.deepEqual(messages(looks, "home", view), [], `home at ${view}`);
+      assert.deepEqual(messages(looks, "tricky", view), [], `tricky at ${view}`);
     }
   });
+
+  test("measures what is there: the rest of a line an ellipsis hides, a tap that reaches an input over a small label, links in a sentence's spans, links out of sight in a box, and a line that a scrolling panel runs past the screen", () => {
+    // Each is planted in tricky, and each was reported once.
+    const look = looks.find((candidate) => candidate.state === "tricky" && candidate.view === "phone")!;
+    assert.ok(look.boxes.some((box) => box.key === 'button "Pick the day"'), look.boxes.map((box) => box.key).join(", "));
+    for (const view of ["desktop", "phone"]) assert.deepEqual(messages(looks, "tricky", view), [], `tricky at ${view}`);
+  });
+
+  test("judges a look its steps left unscrolled as a reader would scroll it", () => {
+    // A row under a docked bar that the list can scroll clear; a link under the sticky header, which scrolling
+    // back brings out; and the facts above the screen, where a skip link waits until it has focus.
+    assert.deepEqual(messages(looks, "docked", "phone"), [], "docked");
+    assert.deepEqual(messages(looks, "tricky-after-a-jump", "phone"), [], "tricky after a jump");
+  });
+
 
   test("finds nothing under an open dialog whose frame scrolls", () => {
     for (const view of ["desktop", "phone", "phone.dark"]) {
@@ -113,6 +134,15 @@ describe("ra check on the fixture site", () => {
     assert.deepEqual(kinds(looks, "noscript", "desktop"), ["contrast"], said.join("\n"));
     assert.match(look.findings[0]!.message, /^"This line shows only when scripts are o…" has 1\.9:1 contrast/u);
     assert.ok(!look.notes.some((note) => note.includes("never stopped changing")), look.notes.join("\n"));
+  });
+
+  test("leaves alone the script preloads Chromium refuses with scripts off, and reports a stylesheet a policy refuses", () => {
+    // Chromium calls both refusals csp; only the stylesheet's is the page's doing.
+    assert.deepEqual(kinds(looks, "tricky-without-scripts", "desktop"), [], "tricky with scripts off");
+    const look = looks.find((candidate) => candidate.state === "refused")!;
+    const said = look.findings.map((finding) => `${finding.kind}: ${finding.message}`);
+    assert.deepEqual(kinds(looks, "refused", "desktop"), ["console", "request"], said.join("\n"));
+    assert.ok(said.includes("request: GET /site.css failed (csp)."), said.join("\n"));
   });
 
   test("finds every planted problem", () => {
@@ -153,8 +183,49 @@ describe("ra check on the fixture site", () => {
       /^contrast: "Billed yearly, cancel any time\." has 1\.9:1 contrast/u,
       // A scaled line that its clip shows in part.
       /^contrast: "Pale words, scaled and partly clipped" has [\d.]+:1 contrast/u,
+      // An icon pushed past the side of a row that clips, until only a sliver of it shows.
+      /^cut-off: "Switch the theme" is cut off on the right by section#pushed\.pushed "Home" \(14px hidden\)\./u,
+      // A close button pushed up past the top of a card that clips.
+      /^cut-off: "Close the card" is cut off at the top by div\.notice "A card whose close button is pushed up…" \(30px hidden\)\./u,
+      // Lines that collide where their scroller has not shown them yet: past its right edge, and below its fold.
+      /^overlap: "Past the right edge, the firs…" and "The second line lies over it\." are drawn on top of each other\./u,
+      /^overlap: "Below the fold, the first lin…" and "The second line lies over tha…" are drawn on top of each other\./u,
     ];
     for (const pattern of expected) assert.ok(said.some((line) => pattern.test(line)), `${pattern}\n${said.join("\n")}`);
+  });
+
+  test("measures a tap target by where a tap reaches it", () => {
+    // Not by a label kept for screen readers far off the screen, nor by the part of a picture its box crops.
+    // Tricky's lone link proves the far label does not crowd the controls around it either.
+    for (const view of ["phone", "phone.dark"]) {
+      const said = messages(looks, "broken", view);
+      for (const pattern of [
+        /^small-target: 2 tap targets in section#icons\.icons are smaller than 24px with other controls close by, starting with button "Undo" \(20×20\)\.$/u,
+        /^small-target: 2 tap targets in section#avatars\.avatars are smaller than 24px with other controls close by, starting with link "Ada" \(20×20\)\.$/u,
+      ]) {
+        assert.ok(said.some((line) => pattern.test(line)), `${pattern} at ${view}\n${said.join("\n")}`);
+      }
+    }
+  });
+
+  test("reports a control that no scroll brings out from under what covers it", () => {
+    // Buttons fixed under a fixed cookie bar, one of them inside a box that hides what overflows it; a banner
+    // fixed inside a transformed box, so it moves with the page; and a page that hides its overflow.
+    const covered = [
+      'covered: button "Add to cart" is covered by p "Free shipping over fifty"; a click or tap on it would land on that instead.',
+      'covered: p.cookies "This site keeps a cookie." covers 2 controls: button "Help", button "Chat".',
+    ];
+    assert.deepEqual(messages(looks, "pinned", "phone"), covered, "pinned");
+    assert.deepEqual(messages(looks, "pinned-after-steps", "phone"), covered, "pinned after steps");
+    assert.deepEqual(messages(looks, "locked-after-steps", "phone"), [
+      'covered: button "Continue" is covered by p.bar "Ten percent off today"; a click or tap on it would land on that instead.',
+    ]);
+  });
+
+  test("tests the tap targets that a full-screen menu scrolls onto the screen", () => {
+    assert.deepEqual(messages(looks, "menu", "phone"), [
+      'small-target: 3 tap targets in nav.menu are smaller than 24px with other controls close by, starting with link "Mail us" (16×16).',
+    ]);
   });
 
   test("reports a page without a title or viewport", () => {
@@ -283,6 +354,21 @@ export default defineConfig({ app: { static: "." }, views: ["desktop"], timeout:
     const [look] = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
     assert.deepEqual(look!.findings, []);
   });
+
+  test("says under a passing state what its look left out, and counts the notes", async () => {
+    const project = mkdtempSync(join(scratch, "long-"));
+    writeFileSync(join(project, "index.html"), html("Long", '<div style="height: 40000px"></div><button type="button">At the end</button>'));
+    writeFileSync(
+      join(project, "ra.config.ts"),
+      `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({ app: { static: "." }, views: ["desktop"], states: { long: "/" } });
+`,
+    );
+    const ran = await ra(["check"], project, 120_000);
+    assert.equal(ran.status, 0, ran.err);
+    assert.match(ran.out, /✓ long\n(?: {2}note: .+\n)* {2}note: The page is \d+px tall; ra scrolled through its first 40 screens, so no control below them was tested for being covered\.\n/u);
+    assert.match(ran.out, /All 1 state look right, with 2 notes\./u);
+  });
 });
 
 describe("ra look", () => {
@@ -321,7 +407,7 @@ describe("ra look", () => {
   test("says how to name a state that does not exist, and exits 2", async () => {
     const ran = await ra(["look", "nowhere"]);
     assert.equal(ran.status, 2);
-    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, dialog, noscript, broken, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
+    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, dialog, docked, noscript, tricky-without-scripts, tricky-after-a-jump, broken, pinned, pinned-after-steps, locked-after-steps, menu, refused, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
   });
 });
 
@@ -461,6 +547,50 @@ export default defineConfig({
       }
     });
   }
+
+  test("forgets the requests that a reload cancelled", async () => {
+    // The page asks its app for something that takes a minute, and the state reloads the page first. The browser
+    // cancels the request, and under playwright-core 1.62 nothing says so; ra must not wait on it.
+    const project = mkdtempSync(join(scratch, "reloaded-"));
+    const page = html("Reloaded", '<button type="button" id="ask">Ask</button><script>ask.onclick = () => fetch("/slow").catch(() => {});</script>');
+    writeFileSync(
+      join(project, "server.mjs"),
+      `import { createServer } from "node:http";
+createServer((request, response) => {
+  if (request.url === "/slow") {
+    const timer = setTimeout(() => response.end("late"), 60_000);
+    response.on("close", () => clearTimeout(timer));
+    return;
+  }
+  response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(${JSON.stringify(page)});
+}).listen(Number(process.argv[2]), "127.0.0.1");
+`,
+    );
+    writeFileSync(
+      join(project, "ra.config.ts"),
+      `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({
+  app: { command: ${JSON.stringify(`"${process.execPath}" server.mjs {port}`)} },
+  views: ["desktop"],
+  states: {
+    reloaded: {
+      url: "/",
+      steps: async (page) => {
+        await page.getByRole("button", { name: "Ask" }).click();
+        await page.waitForTimeout(300);
+        await page.reload();
+      },
+    },
+  },
+});
+`,
+    );
+    const ran = await ra(["check", "--json"], project, 120_000);
+    assert.ok(ran.out.startsWith("{"), ran.err);
+    const [look] = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+    assert.deepEqual(look!.findings.map((finding) => `${finding.kind}: ${finding.message}`), []);
+    assert.equal(ran.status, 0, ran.err);
+  });
 
   test("against a deployment, says to block the deployment's own paths, since no reply stands in for them", async () => {
     const seen: string[] = [];
