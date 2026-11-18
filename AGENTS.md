@@ -25,7 +25,7 @@ ra looks at a web app's interface in a real browser inside a fake world, and say
 ## Rules
 
 - **No runtime dependencies.** `playwright-core` is an optional peer that comes from the project being looked at. Keep it that way.
-- **Quiet on correct pages.** Every finding kind has a planted case in `test/fixtures/site/broken.html`. Every deliberate pattern that looks like a problem but is not one (ellipsis, line clamp, scroller, drawer, screen-reader text) sits in `tricky.html`, which must stay clean. A new check needs both, plus a browser test.
+- **Quiet on correct pages.** Every finding kind has a planted case in a browser test, most of them in `test/fixtures/site/broken.html`. Every deliberate pattern that looks like a problem but is not one (ellipsis, line clamp, scroller, drawer, screen-reader text) sits in `tricky.html`, which must stay clean. A new check needs both, plus a browser test.
 - **Findings are sentences.** Each names the element and says by how much it is wrong. Write it for an agent that will act on it, and keep CSS jargon out unless it is the fix.
 - **One launch path.** Only `src/browser.ts` starts a browser. Its policy is covered by unit tests: the provisioned Chromium only, never an installed Chrome; one merged `--disable-features` that includes `PaintHolding` and `MacAppCodeSignClone`; `--mute-audio`; and a verified command line.
 - **The world stays closed.** A request that nothing in the world answers is stopped and reported, including against deployments. Do not add a way around this. The `leave`, `detours` and closed-world browser tests, and the trial in `ra doctor`, prove it; a change that weakens one of them is a regression.

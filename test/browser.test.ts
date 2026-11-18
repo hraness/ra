@@ -336,6 +336,43 @@ export default defineConfig({
   });
 });
 
+describe("a page that shows nothing, and a dev server's error overlay", () => {
+  test("reports the empty page, and the overlay with its message", async () => {
+    const copy = copySite();
+    // A title, and nothing to see.
+    writeFileSync(
+      join(copy, "empty.html"),
+      `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Empty</title></head><body><main></main></body></html>`,
+    );
+    // Vite draws its overlay as a custom element and keeps the message in the element's shadow root.
+    writeFileSync(
+      join(copy, "overlay.html"),
+      html(
+        "Overlay",
+        `<p>The page under the overlay.</p><script>const overlay = document.createElement("vite-error-overlay"); overlay.attachShadow({ mode: "open" }).innerHTML = '<pre class="message">Failed to resolve import "./missing.ts" from "src/main.ts".</pre>'; document.body.append(overlay);</script>`,
+      ),
+    );
+    writeFileSync(
+      join(copy, "ra.config.ts"),
+      `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({
+  app: { static: "." },
+  views: ["desktop"],
+  states: { empty: "/empty", overlay: "/overlay" },
+});
+`,
+    );
+    const ran = await ra(["check", "--json"], copy, 120_000);
+    assert.ok(ran.out.startsWith("{"), ran.err);
+    const looks = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+    assert.deepEqual(messages(looks, "empty", "desktop"), ["blank: The page shows nothing: no text, picture or control is visible."]);
+    assert.deepEqual(messages(looks, "overlay", "desktop"), [
+      'error-overlay: The dev server is showing an error over the page: Failed to resolve import "./missing.ts" from "src/main.ts".',
+    ]);
+    assert.equal(ran.status, 1);
+  });
+});
+
 describe("a look that never finishes", () => {
   test("is stopped at the project's timeout and reported, and the run goes on and ends", async () => {
     const copy = copySite();
