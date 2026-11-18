@@ -53,6 +53,12 @@
       /* Drawn at half size, and clipped to 80 of its 200 pixels. */
       .half { transform: scale(0.5); transform-origin: 0 0; }
       .part { width: 200px; margin: 0; clip-path: inset(0 120px 0 0); }
+      /* A row that clips what is wider than it, whose last control, an icon, is pushed out until a sliver shows. */
+      .pushed { display: flex; align-items: center; gap: 12px; width: 280px; overflow-x: clip; }
+      .pushed a { flex: none; width: 48px; }
+      .pushed span { flex: none; width: 206px; }
+      .pushed button { flex: none; width: 16px; height: 28px; padding: 0; border: 0; background: none; color: var(--ink); }
+      .pushed svg { display: block; }
     </style>
   </head>
   <body>
@@ -119,6 +125,8 @@
       </section>
 
       <section id="picture-with-link"><div class="plan" role="img" aria-label="Team plan"><p class="pale">Billed yearly, cancel any time.</p><p><a class="cut-link" href="#trial">Start the free trial</a></p></div></section>
+
+      <section id="pushed" class="pushed"><a href="/">Home</a><span></span><button type="button" aria-label="Switch the theme"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor" /></svg></button></section>
 
       <section id="part-clipped"><div class="half"><p class="pale part">Pale words, scaled and partly clipped</p></div></section>
     </main>

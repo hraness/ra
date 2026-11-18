@@ -8,6 +8,15 @@ export default defineConfig({
     tricky: { url: "/tricky", note: "Deliberate clipping, scrolling and hiding that must not be reported." },
     // An open modal dialog whose frame scrolls, over a dimmed and blurred page: clean too.
     dialog: { url: "/dialog", note: "A search dialog, open, with results scrolled out of its frame." },
+    // Steps leave a look where they put it, unscrolled. A row under the docked bar is not covered: the list
+    // can scroll it clear.
+    docked: {
+      url: "/docked",
+      views: ["phone"],
+      steps: async (page) => {
+        await page.getByRole("searchbox", { name: "Search" }).waitFor();
+      },
+    },
     // Scripts off: the page's fallback is what is looked at, and every check still runs.
     // Text inside <noscript> is out of reach of `see`, so `expect` finds it by CSS.
     noscript: {
@@ -21,6 +30,15 @@ export default defineConfig({
     },
     // Scripts off: Chromium refuses the page's script preloads, which is not a problem.
     "tricky-without-scripts": { url: "/tricky", views: ["desktop"], javascript: false },
+    // A jump leaves a link under the sticky header, and the facts above the screen where the moved skip
+    // link waits: neither is a problem.
+    "tricky-after-a-jump": {
+      url: "/tricky",
+      views: ["phone"],
+      steps: async (page) => {
+        await page.getByRole("link", { name: "Jump to where it lands" }).click();
+      },
+    },
     broken: { url: "/broken", note: "One of every problem." },
     // Scripts off too, but here the page's own policy refuses its stylesheet, which is.
     refused: { url: "/refused", views: ["desktop"], javascript: false },

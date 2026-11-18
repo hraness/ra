@@ -589,4 +589,18 @@ describe("findings", () => {
     assert.match(summary.text, /page-scroll {2}The page scrolls sideways by 12px\. \[phone\]/u);
     assert.match(summary.text, /✓ about/u);
   });
+
+  test("a check report prints every state's notes, counts them, and shows a failing state whole", () => {
+    const states = [{ name: "home", url: "/" }, { name: "long", url: "/long" }] as never;
+    const receipt = { executable: "/x/chromium-1/chrome", version: "1.0", playwright: "1.0.0", disabledFeatures: [], muted: true as const };
+    const accepted = { ...finding("contrast", "Faint text on the hero"), accepted: "The hero is decorative." };
+    const options = { origin: "http://127.0.0.1:1", live: false, ms: 1000, receipt, notes: [], skipped: [], unused: [] };
+    const long = { ...look("long", "desktop", []), notes: ["The page is very long."] } as Observation;
+    const failing = checkText(states, [look("home", "desktop", [finding("console", "The console logged an error: boom"), accepted]), long], options);
+    assert.match(failing.text, /✗ home {2}\/\n {2}console {2}The console logged an error: boom\n {2}accepted contrast: Faint text on the hero \(The hero is decorative\.\)\n/u);
+    assert.match(failing.text, /✓ long\n {2}note: The page is very long\.\n/u);
+    assert.match(failing.text, /1 finding in 1 of 2 states, with 1 note\. Look closer/u);
+    const passing = checkText(states, [look("home", "desktop", [accepted]), long], options);
+    assert.match(passing.text, /✓ home {2}\(1 accepted\)\n✓ long\n {2}note: The page is very long\.\n\nAll 2 states look right, with 1 note\.\n/u);
+  });
 });

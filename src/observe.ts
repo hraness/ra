@@ -89,12 +89,14 @@ export interface ObserveOptions {
 
 const BACKGROUND = new Set(["websocket", "eventsource", "media", "ping"]);
 const BARE =
-  "*, *::before, *::after { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; -webkit-text-stroke-color: transparent !important; text-decoration-color: transparent !important; }";
+  "*, *::before, *::after { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; -webkit-text-stroke-color: transparent !important; text-decoration-color: transparent !important; transition: none !important; }";
 const TALLEST = 12_000;
 
 /**
  * Takes a picture with the page's text hidden, so that contrast can read what
- * lies behind each text. The sheet that hides it is a constructed one, adopted
+ * lies behind each text. The sheet turns transitions off, or each color it
+ * changes would start one, and on a page that eases every color, finishing
+ * them all for the picture can take longer than the picture is allowed. The sheet that hides it is a constructed one, adopted
  * by the document and each open shadow root. Playwright's `style` option adds
  * a <style> tag instead, which a strict Content-Security-Policy blocks: the
  * text would stay, and the policy's console error would read as the page's.
@@ -486,9 +488,19 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
       }
       return true;
     };
+    // A new document cancels what the old one still had open, and the browser does not always say so for
+    // each request. A history change keeps the document, and its requests with it.
+    let navigation: Request | null = null;
+    page.on("framenavigated", (frame) => {
+      if (frame !== page.mainFrame() || navigation === null) return;
+      if (frame.url().split("#")[0] !== navigation.url().split("#")[0]) return;
+      navigation = null;
+      for (const request of pending) if (!request.isNavigationRequest()) pending.delete(request);
+    });
     page.on("request", (request) => {
       observation.requests.total++;
       lastActivity = performance.now();
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) navigation = request;
       if (!BACKGROUND.has(request.resourceType())) pending.add(request);
       if (request.redirectedFrom() === null) return;
       const verdict = verdictOf(request);

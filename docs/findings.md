@@ -21,7 +21,8 @@ The page scrolls sideways at this view. The message names up to three elements t
 Text or a control is clipped by a box with `overflow: hidden` or `clip`, so part of it cannot be seen or reached.
 
 - Left alone: an ellipsis (`text-overflow` other than `clip`) and a line clamp (`-webkit-line-clamp`), which are clipping on purpose.
-- Left alone: anything inside a box that scrolls, since it can be scrolled into view.
+- Left alone: anything past an edge of a box that scrolls, since it can be scrolled into view, even where a box inside it hides its overflow at other edges: a line cut short with an ellipsis, in a panel whose list runs past the bottom of the screen, is cut off only on its own sides.
+- A control pushed past a side that does not scroll is cut off however little of it still shows, such as an icon with only its last pixels inside the page.
 - Left alone: screen-reader-only text: tiny and clipped, or clipped to nothing by `clip` or `clip-path` at any size, as a skip link is until it has focus.
 - Left alone: text inside a picture (`role="img"`), which is read as one image by its label, unless the picture holds a link, a button or anything else that Tab reaches.
 - A box that is scaled up or down is measured as drawn, in the same coordinates as the text in it.
@@ -37,6 +38,7 @@ Text runs out of its box: past the right or left edge, or below the bottom, with
 Two pieces of text are painted on top of each other in the same layer.
 
 - Text on a different surface does not count: inside an absolutely positioned, fixed or transformed box, or a box with its own background. Neither does text nested inside the other, or text inside a picture (`role="img"`) that holds nothing Tab reaches.
+- Only what a line's boxes show of it counts: the rest of a line that an ellipsis cuts short, and a line scrolled out of its box's sight, lie over nothing.
 - At most five pairs are reported per look.
 
 ### `covered`
@@ -45,7 +47,8 @@ Something sits over the centre of a control, so a click or tap there would land 
 
 - Left alone: a label covering its own input; checkbox, radio, file and range inputs, which custom controls often draw over on purpose; and controls that are nearly transparent.
 - Left alone: controls under an open dialog or popover, a menu, listbox or dialog that floats over the page (positioned absolute or fixed), or the panel that an expanded control has opened. Covering them is what it is there for. A menu bar or a list that is part of the page is judged like anything else, and so is a panel that holds its own expanded control, such as a sidebar with the button that hides it.
-- Left alone: a skip link clipped to nothing until it has focus.
+- Left alone: a skip link clipped to nothing until it has focus, and a control scrolled out of sight inside a box, which hides it there.
+- A state with steps is looked at where its steps leave it, without scrolling (see `scroll`). There a control under something that stays put while its box scrolls, such as a sticky header or a bar docked over a list, is left alone when scrolling that box could bring it clear, as it would in a look that scrolls.
 - An overlay is named as a whole, not by the paragraph inside it that happened to be hit.
 
 ## Reading and reaching
@@ -59,12 +62,14 @@ ra photographs the page twice, once as it is and once with every glyph made tran
 - Left alone: text under an open popup that paints a background, text under a nearly opaque cover (90% or more), and the part of a line that its scrolling box shows none of. A fainter veil, a frame, a shadow or a decorative picture over text lets the text show, so its contrast is still measured.
 - Left alone: text inside a picture (`role="img"`) that holds nothing Tab reaches, whose look is the picture's business.
 - On touch views, both pictures keep the layout for a finger that ra measured, although the browser matches a mouse while it photographs beyond the screen.
+- Left alone: in a look that its steps scrolled, text off the screen where a fixed layer lies. The pictures paint the layer there, at the scroll the steps left, although the screen never shows it over that text.
 
 ### `small-target`
 
 On touch views, a control is smaller than `tapTarget` (24px by default) **and** another control is close enough to hit by mistake.
 
-- Left alone: a small control with room around it, and a link inside a sentence, which is as tall as its line.
+- Left alone: a small control with room around it, and a link inside a sentence, which is as tall as its line, even in a span of its own.
+- A control's area takes in what it holds, such as a transparent input laid over a small label, since a tap there reaches it. A control on a fixed layer moved off the screen, such as a skip link until it has focus, is not a target.
 
 ### `no-name`
 
@@ -114,7 +119,7 @@ The page did not load: a network error, a timeout, or a navigation the closed wo
 
 ### `busy`
 
-Requests were still open when the settle time ran out (5 seconds by default). Usually a long poll, a stream or a request that never answers. Give it a reply in the world, or block it.
+Requests were still open when the settle time ran out (5 seconds by default). Usually a long poll, a stream or a request that never answers. Give it a reply in the world, or block it. A new document cancels what the old one still had open, so a reload in a state's steps leaves nothing loading behind it.
 
 Or the page stopped answering: ra's own checks on it, its pictures of it, or its wait for the page to settle, did not finish within the project's `timeout` (30 seconds by default) plus the few seconds those waits take by design, usually because a script keeps the page busy. The message says what ra was doing. What the checks found before then is still reported; the look stops there, and the run goes on with the next one.
 

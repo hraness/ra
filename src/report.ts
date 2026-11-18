@@ -162,6 +162,7 @@ export function checkText(states: readonly State[], observations: readonly Obser
   );
 
   let findings = 0;
+  let noted = 0;
   const failing: string[] = [];
   const passing: string[] = [];
   let firstFailure: { state: string; view: string } | undefined;
@@ -171,20 +172,24 @@ export function checkText(states: readonly State[], observations: readonly Obser
     const open = groupFindings(looks, false);
     const accepted = groupFindings(looks, true);
     const everyView = looks.map((look) => look.view);
+    // Views are named only for a finding that shows at some of them.
+    const some = (group: Grouped) => (group.views.length < everyView.length ? ` [${group.views.join(", ")}]` : "");
+    // A state's notes are printed whether it passes or not: a look that passes may still have had to leave
+    // something out, and the log is the only place that says so.
+    const notes = [...new Set(looks.flatMap((look) => look.notes))].map((note) => `  note: ${note}`);
+    noted += notes.length;
     if (open.length === 0) {
-      passing.push(`✓ ${state.name}${accepted.length === 0 ? "" : `  (${accepted.length} accepted)`}`);
+      passing.push(`✓ ${state.name}${accepted.length === 0 ? "" : `  (${accepted.length} accepted)`}`, ...notes);
       continue;
     }
     findings += open.length;
     firstFailure ??= { state: state.name, view: open[0]!.views[0]! };
     failing.push(`✗ ${state.name}  ${state.url}`);
-    // Views are named only for a finding that shows at some of them.
     const width = Math.max(...open.map((group) => group.finding.kind.length));
-    for (const group of open) {
-      const some = group.views.length < everyView.length ? ` [${group.views.join(", ")}]` : "";
-      failing.push(...findingLines(group.finding, group.finding.kind, width, some));
-    }
-    for (const note of new Set(looks.flatMap((look) => look.notes))) failing.push(`  note: ${note}`);
+    for (const group of open) failing.push(...findingLines(group.finding, group.finding.kind, width, some(group)));
+    // A failing state is shown whole, with the findings it accepts.
+    for (const group of accepted) failing.push(`  accepted ${group.finding.kind}: ${group.finding.message}${some(group)} (${group.finding.accepted})`);
+    failing.push(...notes);
   }
   out.push(...failing);
   if (failing.length > 0 && passing.length > 0) out.push("");
@@ -193,10 +198,11 @@ export function checkText(states: readonly State[], observations: readonly Obser
 
   out.push("");
   const failed = failing.filter((line) => line.startsWith("✗ ")).length;
+  const counted = noted === 0 ? "" : `, with ${plural(noted, "note")}`;
   if (findings === 0) {
-    out.push(`All ${plural(byState.size, "state")} look right.`);
+    out.push(`All ${plural(byState.size, "state")} look right${counted}.`);
   } else {
-    out.push(`${plural(findings, "finding")} in ${failed} of ${plural(byState.size, "state")}. Look closer: ra look ${firstFailure!.state} --at ${firstFailure!.view}`);
+    out.push(`${plural(findings, "finding")} in ${failed} of ${plural(byState.size, "state")}${counted}. Look closer: ra look ${firstFailure!.state} --at ${firstFailure!.view}`);
   }
   for (const rule of options.unused) {
     out.push(`note: the accept entry for ${rule.finding}${rule.match === undefined ? "" : ` matching ${String(rule.match)}`} matched nothing; it can go.`);

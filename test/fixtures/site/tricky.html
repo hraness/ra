@@ -56,12 +56,35 @@
       .menu-host { position: relative; }
       .menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 1; min-width: 240px; padding: 4px 4px 48px; border-radius: 8px; background: rgb(27 29 34 / 0.9); color: #f3f4f7; backdrop-filter: blur(1px); }
       .menu [role="menuitemradio"] { padding: 8px 12px; }
+      /* A name cut short with an ellipsis, beside the date on its row: the hidden rest lies over nothing. */
+      .row { display: flex; gap: 8px; width: 240px; }
+      .row b { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .row time { flex: none; color: var(--soft); }
+      /* A small label with a transparent input laid over it, larger than the label, which takes the tap. */
+      .when { margin: 0 0 2px; font-size: 11px; line-height: 1.3; }
+      .pick { position: relative; cursor: pointer; }
+      .pick input { position: absolute; inset: -8px -12px; width: calc(100% + 24px); height: calc(100% + 16px); margin: 0; padding: 0; border: 0; opacity: 0; font-size: 16px; appearance: none; }
+      /* A list joined into a sentence, each item in a span with the words before it. */
+      .prose { max-width: 170px; line-height: 1.25; }
+      /* A skip link fixed above the top of the screen by a transform until it has focus. */
+      .skip-moved { position: fixed; top: 12px; left: 12px; z-index: 3; display: inline-flex; align-items: center; min-height: 48px; padding-inline: 16px; background: var(--ink); color: var(--paper); transform: translateY(calc(-100% - 24px)); }
+      .skip-moved:focus { transform: none; }
+      /* A jump lands below the sticky header. */
+      #jumped { scroll-margin-top: 80px; }
+      /* On wide screens, a panel fixed in the corner lists recent pages, each cut short with an ellipsis.
+         Its list scrolls, and runs on past the bottom of the screen until it is scrolled. */
+      .recent { display: none; }
+      @media (min-width: 1280px) {
+        .recent { display: block; position: fixed; right: 16px; bottom: 16px; width: 200px; height: 150px; padding: 8px 12px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+        .recent a { display: block; padding: 6px 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      }
     </style>
   </head>
   <body>
     <a class="skip" href="#content">Skip to content</a>
     <a class="skip-clip" href="#content">Skip to the content</a>
     <a class="skip-path" href="#content">Skip to the page</a>
+    <a class="skip-moved" href="#content">Skip to the main part</a>
     <header class="top">
       <a class="brand" href="/">Fixture</a>
       <nav aria-label="Main">
@@ -79,6 +102,7 @@
 
       <h2>Shortened on purpose</h2>
       <p class="truncate">This sentence is far longer than its box and ends in an ellipsis.</p>
+      <div class="row"><b>A name far longer than the row it shares with a date</b><time>11/17/25</time></div>
       <p class="clamp">This paragraph is clamped to two lines. Everything after the second line is hidden by design, and a reader sees an ellipsis where it stops, however long the paragraph goes on after that.</p>
 
       <h2>Scrolls on purpose</h2>
@@ -93,6 +117,10 @@
       </div>
       <div class="scroller" tabindex="0" role="group" aria-label="A box that scrolls">
         <p>Line one of a tall box.</p><p>Line two.</p><p>Line three.</p><p>Line four.</p><p>Line five.</p><p>Line six.</p>
+      </div>
+      <!-- Its later links are scrolled out of sight inside it, over whatever comes after the box. -->
+      <div class="scroller" tabindex="0" role="group" aria-label="Years, in a box that scrolls">
+        <p><a href="/">2021</a></p><p><a href="/">2022</a></p><p><a href="/">2023</a></p><p><a href="/">2024</a></p><p><a href="/">2025</a></p>
       </div>
       <div class="wide" tabindex="0" role="group" aria-label="A wide table">
         <table>
@@ -112,6 +140,8 @@
 
       <h2>Controls drawn their own way</h2>
       <p><label class="toggle"><input type="checkbox" /><span></span> Dark mode</label></p>
+      <p class="when"><span class="pick" role="button" tabindex="0" aria-label="Pick the day"><b>Day 1</b><input type="datetime-local" tabindex="-1" aria-label="Pick the day" /></span></p>
+      <button class="button" type="button">Keep the day</button>
       <p>
         <button class="icon" type="button" aria-label="Search"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="2" /></svg></button>
         <button class="icon" type="button" aria-label="Settings"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="3" y="3" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" /></svg></button>
@@ -122,6 +152,21 @@
 
       <h2>Links in a sentence</h2>
       <p>Read <a href="/">the home page</a>, then <a href="/broken">the broken page</a>, and compare what <a href="/tricky">this page</a> reports with both of them.</p>
+      <section aria-label="Plans"><p class="prose">Try <span><a href="/">a walk at noon</a></span><span>, <a href="/">a picnic by the lake</a></span><span> or <a href="/">a quiet evening in</a></span>, or see <a href="/tricky">all the other plans</a>.</p></section>
+
+      <!-- A state jumps here: the facts end up just above the screen, where the moved skip link is, and
+           the link after them under the sticky header, where scrolling back would bring it out. -->
+      <h2>After a jump</h2>
+      <p><a href="#jumped">Jump to where it lands</a></p>
+      <table>
+        <tbody>
+          <tr><th>Opened</th><td><a href="/">2010</a></td></tr>
+          <tr><th>Moved</th><td><a href="/">2014</a></td></tr>
+        </tbody>
+      </table>
+      <p><a class="start" href="/">Read on</a></p>
+      <h3 id="jumped">Where the jump lands</h3>
+      <p>Below the sticky header, with the facts just above the top of the screen.</p>
 
       <h2>Rows sized for touch</h2>
       <ol class="rows">
@@ -172,7 +217,18 @@
       <p><a href="/broken">Second result</a></p>
       <p>Third result</p>
       <p>A fourth, in plain text.</p>
+
     </main>
+    <nav class="recent" aria-label="Recent pages">
+      <a href="/">The home page, which has nothing wrong with it</a>
+      <a href="/broken">The broken page, with one of every problem</a>
+      <a href="/dialog">A search dialog, open over a page</a>
+      <a href="/tricky">This page, which only looks wrong</a>
+      <a href="/">The home page again, from another visit</a>
+      <a href="/broken">The broken page again, from another visit</a>
+      <a href="/dialog">The dialog again, from another visit</a>
+      <a href="/tricky">This page again, from another visit</a>
+    </nav>
     <footer>
       <nav aria-label="Footer">
         <a href="/">Home</a>

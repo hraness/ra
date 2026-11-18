@@ -72,6 +72,8 @@ bun add -d https://github.com/hraness/ra/releases/download/v0.1.3/hraness-ra-0.1
 bunx --no-install playwright-core install chromium
 ```
 
+To upgrade, give the new release's address the same way. npm replaces the old one: `npm install -D <new address>`. Bun stops with `DependencyLoop` while its lockfile names the old address, so remove ra and add it again (`bun remove @hraness/ra`, then `bun add -d <new address>`), or change the address in `package.json` and run `bun install`.
+
 You can look at any running app straight away, without a config:
 
 ```sh
@@ -183,7 +185,7 @@ The browser follows a redirect by itself, so routing sees only the first request
 - `status`: the response status this state is meant to have, when it is not a success.
 - `views`: views for this state instead of the project's.
 - `accept`: findings to accept for this state.
-- `scroll: false`: stops ra scrolling through the page.
+- `scroll`: whether ra scrolls through the page, testing each control as it passes the middle of the screen. A state without steps is scrolled unless this is `false`. A state with steps is looked at where its steps leave it unless this is `true`.
 - `live: true`: marks the state as safe to look at on a deployment.
 - `javascript: false`: looks at the page with its scripts turned off, as a reader without JavaScript or a crawler sees it, `<noscript>` content included. Every check still runs. It is still a read-only page load, so it does not make a state local, and a run against a deployment may use it without `live`. With scripts off, `session` is not set, since no script could read it, and `see` cannot match text inside `<noscript>`; check that text in `expect` with a CSS locator. The browser refuses the page's scripts and script preloads then, and ra does not report that.
 
