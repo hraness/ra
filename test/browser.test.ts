@@ -303,6 +303,39 @@ describe("ra check on the fixture site", () => {
   });
 });
 
+describe("the wait for a page to settle", () => {
+  test("gives a request started late as long as the first ones had, and reports one still open after that", async () => {
+    const copy = copySite();
+    // One request is always open here, but none for long: each is answered in 300ms, and the next starts at once.
+    writeFileSync(
+      join(copy, "ticking.html"),
+      html("Ticking", `<p>A page that asks for the time, again and again.</p><script>const tick = () => fetch("/api/tick").then((reply) => reply.json()).then(tick); tick();</script>`),
+    );
+    // A request that never answers is still loading, however long ra waits.
+    writeFileSync(join(copy, "hanging.html"), html("Hanging", `<p>A page that waits for its news forever.</p><script>fetch("/api/news");</script>`));
+    writeFileSync(
+      join(copy, "ra.config.ts"),
+      `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({
+  app: { static: "." },
+  views: ["desktop"],
+  settle: 1500,
+  states: {
+    ticking: { url: "/ticking", world: { replies: { "GET /api/tick": () => new Promise((done) => setTimeout(() => done({ json: { now: 1 } }), 300)) } } },
+    hanging: { url: "/hanging", world: { replies: { "GET /api/news": () => new Promise(() => {}) } } },
+  },
+});
+`,
+    );
+    const ran = await ra(["check", "--json"], copy, 120_000);
+    assert.ok(ran.out.startsWith("{"), ran.err);
+    const looks = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+    assert.deepEqual(messages(looks, "ticking", "desktop"), []);
+    assert.deepEqual(messages(looks, "hanging", "desktop"), ["busy: The page was still loading after 1.5s: GET /api/news."]);
+    assert.equal(ran.status, 1);
+  });
+});
+
 describe("a look that never finishes", () => {
   test("is stopped at the project's timeout and reported, and the run goes on and ends", async () => {
     const copy = copySite();

@@ -68,7 +68,7 @@ Browser checks are slow, flaky when written carelessly, and easy to write in way
 ra needs Node 22.18 or later and a Playwright in your project: `playwright-core`, `playwright` or `@playwright/test`. Install ra from its GitHub release:
 
 ```sh
-bun add -d https://github.com/hraness/ra/releases/download/v0.1.4/hraness-ra-0.1.4.tgz playwright-core
+bun add -d https://github.com/hraness/ra/releases/download/v0.1.5/hraness-ra-0.1.5.tgz playwright-core
 bunx --no-install playwright-core install chromium
 ```
 
