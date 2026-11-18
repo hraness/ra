@@ -17,6 +17,35 @@
       .tiny button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); background: var(--paper); font-size: 10px; }
       .faint { color: #b9bdc7; background: #ffffff; padding: 4px 0; }
       .stretched { width: 300px; height: 60px; }
+      .pale { color: #b9bdc7; }
+      /* Over text, only what hides it is a cover: a drawing, a frame or a faint veil lets it show. */
+      .overlaid { position: relative; margin: 0 0 12px; }
+      .overlaid > :first-child { margin: 0; }
+      .ornament { position: absolute; left: 0; top: 0; }
+      .ring { position: absolute; inset: -4px; border: 2px solid #888888; border-radius: 8px; }
+      .band { position: relative; padding: 12px; background: #222222; }
+      .band p { margin: 0; color: #ffffff; }
+      .wash { position: absolute; inset: 0; background: rgb(255 255 255 / 0.65); }
+      /* A clear wrapper, labelled as a dialog, round a small bar: it covers only where the bar is. */
+      .clear { position: relative; padding-bottom: 56px; }
+      .clear p { margin: 0; }
+      .clear-wrap { position: absolute; inset: 0; display: flex; align-items: flex-end; pointer-events: none; }
+      .clear-bar { width: 100%; padding: 8px; border-top: 1px solid var(--line); background: var(--paper); pointer-events: auto; }
+      /* A menu bar that is part of the page, laid over the link before it. */
+      .bar-host { position: relative; }
+      .bar-host p { margin: 0; }
+      .bar-host nav { position: absolute; top: 0; left: 0; right: 0; height: 64px; border-bottom: 1px solid var(--line); background: var(--paper); }
+      .bar-host ul { display: flex; align-items: center; gap: 16px; height: 100%; margin: 0; padding: 0 16px; list-style: none; }
+      /* A list that is part of the page, spilling out of its box onto the button after it. */
+      .list-box { height: 60px; }
+      .list-box ul { position: relative; z-index: 1; width: 240px; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); background: var(--paper); }
+      .list-box li { padding: 2px 8px; }
+      /* A picture that holds a link is more than a picture. */
+      .plan { max-width: 320px; padding: 16px; border: 1px solid var(--line); }
+      .cut-link { display: inline-block; width: 80px; overflow: hidden; white-space: nowrap; vertical-align: top; }
+      /* Drawn at half size, and clipped to 80 of its 200 pixels. */
+      .half { transform: scale(0.5); transform-origin: 0 0; }
+      .part { width: 200px; margin: 0; clip-path: inset(0 120px 0 0); }
     </style>
   </head>
   <body>
@@ -26,6 +55,12 @@
     </header>
     <main>
       <h1>Everything here is wrong</h1>
+
+      <section id="shows-through">
+        <div class="overlaid"><h2 class="pale">Pale words under a drawing</h2><svg class="ornament" width="100%" height="40" aria-hidden="true"><circle cx="99%" cy="8" r="4" fill="#ff6600" /></svg></div>
+        <div class="overlaid"><p class="pale">Pale words inside a frame</p><div class="ring"></div></div>
+        <div class="band"><p>White words under a pale veil</p><div class="wash"></div></div>
+      </section>
 
       <section id="wide"><div class="too-wide">This box is 900 pixels wide whatever the screen is.</div></section>
 
@@ -48,6 +83,30 @@
       </section>
 
       <section id="nameless"><button class="button" type="button"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" /></svg></button></section>
+
+      <!-- Hidden from screen readers, yet Tab still reaches it. -->
+      <section id="reachable"><div aria-hidden="true"><button type="button"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" /></svg></button></div></section>
+
+      <section id="clear" class="clear">
+        <p class="pale">Pale words beside a clear wrapper.</p>
+        <div class="clear-wrap" role="dialog" aria-label="Cookie choices"><div class="clear-bar">We use cookies. <button type="button">OK</button></div></div>
+      </section>
+
+      <section id="menu-bar" class="bar-host">
+        <p><a href="#menu-bar">A link the menu bar hides</a></p>
+        <nav aria-label="Sections"><ul role="menu"><li role="none"><a role="menuitem" href="#one">One</a></li><li role="none"><a role="menuitem" href="#two">Two</a></li></ul></nav>
+      </section>
+
+      <section id="list-over">
+        <div class="list-box">
+          <ul role="listbox" aria-label="Plan"><li role="option" aria-selected="true">Free</li><li role="option" aria-selected="false">Team</li><li role="option" aria-selected="false">Business</li><li role="option" aria-selected="false">Enterprise</li></ul>
+        </div>
+        <button type="button">Continue</button>
+      </section>
+
+      <section id="picture-with-link"><div class="plan" role="img" aria-label="Team plan"><p class="pale">Billed yearly, cancel any time.</p><p><a class="cut-link" href="#trial">Start the free trial</a></p></div></section>
+
+      <section id="part-clipped"><div class="half"><p class="pale part">Pale words, scaled and partly clipped</p></div></section>
     </main>
     <script>
       console.error("Something the app logged as an error");

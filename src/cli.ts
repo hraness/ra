@@ -380,9 +380,19 @@ if (process.versions.bun !== undefined) {
   process.exit(2);
 }
 
+/**
+ * Ends ra once what it printed has been written. A state's steps that ran out
+ * of time may have left timers or retries behind, and they must not keep ra
+ * running after its work is done.
+ */
+function finish(status: number): void {
+  process.exitCode = status;
+  process.stdout.write("", () => process.stderr.write("", () => process.exit(status)));
+}
+
 main(process.argv.slice(2)).then(
   (status) => {
-    if (!interrupted) process.exitCode = status;
+    if (!interrupted) finish(status);
   },
   (error: unknown) => {
     // An interrupted run fails as its browser closes; that is not worth a message.
@@ -390,6 +400,6 @@ main(process.argv.slice(2)).then(
     const usage = error instanceof UsageError || error instanceof ConfigError;
     const known = usage || error instanceof AppError || error instanceof BrowserPolicyError;
     process.stderr.write(`ra: ${known ? (error as Error).message : error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
-    process.exitCode = usage ? 2 : 3;
+    finish(usage ? 2 : 3);
   },
 );

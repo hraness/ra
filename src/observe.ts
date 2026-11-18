@@ -99,7 +99,7 @@ const TALLEST = 12_000;
  * a <style> tag instead, which a strict Content-Security-Policy blocks: the
  * text would stay, and the policy's console error would read as the page's.
  */
-async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page["screenshot"]>[0]>): Promise<Buffer> {
+async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page["screenshot"]>[0]>, limit: number): Promise<Buffer> {
   const hidden = await bounded(page.evaluateHandle((css) => {
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
@@ -111,7 +111,7 @@ async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page[
     visit(document);
     for (const root of roots) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
     return { sheet, roots };
-  }, BARE), SHORT, "busy", STOPPED);
+  }, BARE), limit, "busy", stopped(limit, "hid the text for the picture without it"));
   try {
     return await page.screenshot(shot);
   } finally {
@@ -119,9 +119,9 @@ async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page[
       hidden.evaluate(({ sheet, roots }) => {
         for (const root of roots) root.adoptedStyleSheets = root.adoptedStyleSheets.filter((adopted) => adopted !== sheet);
       }),
-      SHORT,
+      limit,
       "busy",
-      STOPPED,
+      stopped(limit, "showed the text again"),
     ).catch(() => undefined);
     await hidden.dispose().catch(() => undefined);
   }
@@ -262,9 +262,14 @@ function pinPointerMedia(): Array<[MediaList, string]> {
  * pointer media would match a mouse and the picture would show another layout.
  * The rules that ask are held to what they match now until the picture is taken.
  */
-async function inTouchLayout<T>(page: Page, touch: boolean, take: () => Promise<T>): Promise<T> {
+async function inTouchLayout<T>(page: Page, touch: boolean, limit: number, take: () => Promise<T>): Promise<T> {
   if (!touch) return take();
-  const held = await bounded(page.evaluateHandle(pinPointerMedia), SHORT, "busy", STOPPED).catch(() => null);
+  const held = await bounded(page.evaluateHandle(pinPointerMedia), limit, "busy", stopped(limit, "held the touch layout for the pictures")).catch(
+    (error: unknown) => {
+      if (error instanceof Overdue) throw error;
+      return null;
+    },
+  );
   try {
     return await take();
   } finally {
@@ -273,9 +278,9 @@ async function inTouchLayout<T>(page: Page, touch: boolean, take: () => Promise<
         held.evaluate((list) => {
           for (const [media, text] of list) media.mediaText = text;
         }),
-        SHORT,
+        limit,
         "busy",
-        STOPPED,
+        stopped(limit, "let go of the touch layout"),
       ).catch(() => undefined);
       await held.dispose().catch(() => undefined);
     }
@@ -311,9 +316,17 @@ async function bounded<T>(work: Promise<T>, ms: number, kind: string, message: s
   }
 }
 
-/** How long a quick call to the page may take: putting a picture's sheet in place, say. */
-const SHORT = 10_000;
-const STOPPED = `The page stopped answering for ${SHORT / 1000}s, so the look stopped there.`;
+/** What a look says when the page stopped answering while ra was doing `part`. */
+function stopped(ms: number, part: string): string {
+  return `The page stopped answering for ${seconds(ms)} while ra ${part}, so the look stopped there.`;
+}
+
+function seconds(ms: number): string {
+  return `${Math.round(ms / 100) / 10}s`;
+}
+
+/** The longest an inspection waits for images to load, on top of the time it is given. */
+const IMAGE_WAIT = 3000;
 
 const AsyncFunction = Object.getPrototypeOf(async () => undefined).constructor as new (...names: string[]) => (
   ...values: unknown[]
@@ -330,7 +343,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
   const address = new URL(state.url, `${origin}/`).href;
   const host = new URL(origin).hostname;
   const scripts = state.javascript !== false;
-  const within = `${project.timeout / 1000}s`;
+  const within = seconds(project.timeout);
 
   const context = await browser.newContext({
     viewport: { width: view.width, height: view.height },
@@ -516,7 +529,8 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
         // ra's would ever fire in it: only the fonts are waited for.
         const cap = Math.max(300, Math.min(2500, deadline - performance.now()));
         const still = scripts ? page.evaluate(holdStill, cap) : page.evaluate(fontsLoaded);
-        stillChanging = await bounded(still, project.timeout, "busy", `The page stopped answering for ${within}, so the look stopped there.`).catch((error: unknown) => {
+        // The wait for stillness takes up to `cap` by design, so it gets that on top of the timeout.
+        stillChanging = await bounded(still, cap + project.timeout, "busy", stopped(cap + project.timeout, "waited for it to settle")).catch((error: unknown) => {
           if (error instanceof Overdue) throw error;
           return false;
         });
@@ -613,7 +627,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
         observation.url = page.url();
 
         const target = options.scope === undefined ? page.locator("body") : page.locator(options.scope).first();
-        if (options.scope !== undefined && (await bounded(target.count(), SHORT, "busy", STOPPED)) === 0) {
+        if (options.scope !== undefined && (await bounded(target.count(), project.timeout, "busy", stopped(project.timeout, `looked for ${options.scope}`))) === 0) {
           add("expect", `Nothing on the page matches ${options.scope}.`);
         } else {
           try {
@@ -628,7 +642,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
         if (options.directory !== undefined) mkdirSync(options.directory, { recursive: true });
         if (picture !== null) {
           try {
-            await inTouchLayout(page, view.touch, () =>
+            await inTouchLayout(page, view.touch, project.timeout, () =>
               options.scope === undefined
                 ? page.screenshot({ path: picture, scale: "css", animations: "disabled", caret: "hide" })
                 : target.screenshot({ path: picture, scale: "css", animations: "disabled", caret: "hide", timeout: 10_000 }),
@@ -670,19 +684,21 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
           scripts,
         };
         try {
+          // The checks wait up to IMAGE_WAIT for images by design, so they get that on top of the timeout.
           const inspection = await bounded(
             page.evaluate(inspectPage, inspectOptions),
-            project.timeout,
+            project.timeout + IMAGE_WAIT,
             "busy",
-            `The page stopped answering: ra's checks on it did not finish within ${within}, so the look stopped there.`,
+            `The page stopped answering: ra's checks on it did not finish within ${seconds(project.timeout + IMAGE_WAIT)}, so the look stopped there.`,
           );
-          await settle();
+          // What the checks found stands even if the page stops answering while it settles.
           observation.title = inspection.title;
           observation.page = inspection.page;
           observation.regions = inspection.regions;
           observation.boxes = inspection.boxes;
           findings.push(...inspection.findings);
           notes.push(...inspection.notes);
+          await settle();
 
           const height = Math.min(inspection.page.height, TALLEST);
           if (inspection.page.height > TALLEST) notes.push(`The page is ${inspection.page.height}px tall; pictures and contrast cover its first ${TALLEST}px.`);
@@ -690,11 +706,11 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
           // Both pictures are taken in the layout that was measured. The first is
           // kept even when the second cannot be taken.
           let failed: unknown;
-          const [painted, bare] = await inTouchLayout(page, view.touch, async () => {
+          const [painted, bare] = await inTouchLayout(page, view.touch, project.timeout, async () => {
             const first = await page.screenshot(shot);
             const second = inspection.texts.length === 0
               ? null
-              : await pictureWithoutText(page, shot).catch((error: unknown) => {
+              : await pictureWithoutText(page, shot, project.timeout).catch((error: unknown) => {
                 failed = error;
                 return null;
               });

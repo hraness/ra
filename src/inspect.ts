@@ -293,10 +293,14 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
       const style = cs(el);
       const rect = el.getBoundingClientRect();
       const clipped = style.overflowX !== "visible" || style.clipPath !== "none" || (style.clip !== "auto" && style.clip !== "");
+      // A clip is given in the box's own pixels, before any transform scales it.
+      const own = el as HTMLElement;
+      const width = typeof own.offsetWidth === "number" ? own.offsetWidth : rect.width;
+      const height = typeof own.offsetHeight === "number" ? own.offsetHeight : rect.height;
       result =
         ((rect.width <= 2 || rect.height <= 2) && clipped)
         || /inset\(\s*(?:50|100)%/.test(style.clipPath)
-        || (clipped && clippedAway(style, rect.width, rect.height))
+        || (clipped && clippedAway(style, width, height))
         || forReadersOnly(parentOf(el));
       readerOnly.set(el, result);
     }
@@ -458,6 +462,9 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
         open = false;
       }
       if (!open) continue;
+    } else if (!el.matches('dialog[open], [aria-modal="true"]') && !positioned(el)) {
+      // A menu bar, a list or a panel that is part of the page is not open over it; one that floats out of the flow is.
+      continue;
     }
     addPopup(el);
   }
@@ -606,7 +613,9 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     let result = pictures.get(el);
     if (result === undefined) {
       const role = (el.getAttribute("role") ?? "").trim().toLowerCase().split(/\s+/)[0];
-      result = role === "img" || role === "image" || inPicture(parentOf(el));
+      // One that holds something to Tab to is more than a picture, and its text is read as text.
+      const reachable = () => Array.from(el.querySelectorAll("*")).some((inner) => (inner as HTMLElement).tabIndex >= 0);
+      result = ((role === "img" || role === "image") && !reachable()) || inPicture(parentOf(el));
       pictures.set(el, result);
     }
     return result;
@@ -962,10 +971,11 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     }
   }
 
-  // A control hidden from assistive technology is not announced at all, so it needs no name; the outline leaves it out too.
+  // A control hidden from assistive technology and out of the tab order is never announced, so it needs no name; the
+  // outline leaves it out too. One that Tab still reaches is announced with nothing to say.
   const nameless = controls.filter(
     (el) =>
-      !el.closest('[aria-hidden="true"]')
+      !(el.closest('[aria-hidden="true"]') && (el as HTMLElement).tabIndex < 0)
       && !el.shadowRoot
       && !el.querySelector("slot")
       && !Array.from(el.querySelectorAll("*")).some((inner) => inner.shadowRoot)
@@ -1094,14 +1104,16 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     }
     return value;
   };
-  const REPLACED = /^(?:img|picture|video|canvas|svg|iframe|object|embed)$/;
   /**
-   * Whether something else lies over this piece of text, such as an open menu
-   * or a panel, so that what the picture shows there is not this text.
+   * Whether something else is painted over this piece of text, such as an open
+   * menu or a nearly opaque panel, so that what the picture shows there is not
+   * this text. Anything fainter lets the text show, and is part of what a
+   * reader sees.
    */
   const hiddenUnder = (el: Element, left: number, top: number, right: number, bottom: number): boolean => {
     for (const popup of popups) {
-      if (within(popup, el)) continue;
+      // A popup counts where it paints: a clear wrapper round a small bar covers nothing.
+      if (within(popup, el) || !hasSurface(cs(popup))) continue;
       const box = popup.getBoundingClientRect();
       if (box.left < right && box.right > left && box.top < bottom && box.bottom > top) return true;
     }
@@ -1117,7 +1129,7 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
         // A box paints only inside itself; the hit may be a positioned child that reaches out of it.
         const box = node.getBoundingClientRect();
         if (x < box.left || x > box.right || y < box.top || y > box.bottom) continue;
-        if (REPLACED.test(node.localName) || (hasSurface(cs(node)) && opacityOf(node) >= 0.1)) return true;
+        if (alphaOf(cs(node).backgroundColor) * opacityOf(node) >= 0.9) return true;
       }
     }
     return false;

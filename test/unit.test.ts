@@ -124,10 +124,23 @@ describe("views and config", () => {
     const project = readConfig({ states: { bare: { url: "/", javascript: false } } }, scratch);
     assert.equal(project.states[0]!.javascript, false);
     assert.equal(project.states[0]!.local, false);
-    assert.throws(
-      () => readConfig({ states: { bare: { url: "/", javascript: "false" } } } as never, scratch),
-      /State "bare" has javascript set to "false"; it takes true or false\./u,
-    );
+    for (const [value, said] of [["false", "a string"], [() => false, "a function"], [1n, "a bigint"], [null, "null"]] as const) {
+      assert.throws(
+        () => readConfig({ states: { bare: { url: "/", javascript: value } } } as never, scratch),
+        (error: unknown) => error instanceof ConfigError && error.message === `State "bare" has javascript set to ${said}; it takes true or false.`,
+      );
+    }
+  });
+
+  test("takes a timeout that a timer can wait for, and refuses one that would end every look at once", () => {
+    assert.equal(readConfig({ states: { home: "/" }, timeout: 2_147_483_647 }, scratch).timeout, 2_147_483_647);
+    for (const [value, said] of [[0, "0"], [-1, "-1"], [Infinity, "Infinity"], [2 ** 31, "2147483648"], [Number.NaN, "NaN"], ["30000", "a string"]] as const) {
+      assert.throws(
+        () => readConfig({ states: { home: "/" }, timeout: value } as never, scratch),
+        (error: unknown) =>
+          error instanceof ConfigError && error.message === `The timeout is ${said}; it takes milliseconds above 0 and up to 2147483647, such as 30000.`,
+      );
+    }
   });
 
   test("refuses a rule or an answer it cannot use when the config loads, and says how to write it", () => {

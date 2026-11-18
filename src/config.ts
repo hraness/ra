@@ -340,10 +340,27 @@ function checkAccept(list: Accept[] | undefined, what: string): Accept[] {
   return list;
 }
 
+/** What kind of value this is, said in a way that cannot fail whatever the value. */
+function kindOf(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "a list";
+  if (typeof value === "object") return "an object";
+  return `a ${typeof value}`;
+}
+
+/** The longest a timer can wait: Node fires any longer or non-positive one at once. */
+const LONGEST_WAIT = 2_147_483_647;
+
 /** Checks a config and fills in what it leaves out. */
 export function readConfig(config: Config, root: string, file: string | null = null): Project {
   if (config === null || typeof config !== "object") throw new ConfigError("The config must export an object. Wrap it in defineConfig({...}).");
   checkKeys(config, CONFIG_KEYS, "The config");
+  const timeout: unknown = config.timeout;
+  if (timeout !== undefined && !(typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0 && timeout <= LONGEST_WAIT)) {
+    throw new ConfigError(
+      `The timeout is ${typeof timeout === "number" ? String(timeout) : kindOf(timeout)}; it takes milliseconds above 0 and up to ${LONGEST_WAIT}, such as 30000.`,
+    );
+  }
   checkWorld(config.world, "world");
   const custom = (config.views ?? []).filter((view): view is ViewSpec => typeof view !== "string");
   for (const view of custom) {
@@ -365,7 +382,7 @@ export function readConfig(config: Config, root: string, file: string | null = n
     }
     checkKeys(spec, STATE_KEYS, `State "${name}"`);
     if (spec.javascript !== undefined && typeof spec.javascript !== "boolean") {
-      throw new ConfigError(`State "${name}" has javascript set to ${JSON.stringify(spec.javascript)}; it takes true or false.`);
+      throw new ConfigError(`State "${name}" has javascript set to ${kindOf(spec.javascript)}; it takes true or false.`);
     }
     checkWorld(spec.world, `State "${name}" world`);
     const { world, views: ownViews, accept, ...rest } = spec;

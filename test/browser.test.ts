@@ -129,6 +129,29 @@ describe("ra check on the fixture site", () => {
     assert.equal(desktop.filter((kind) => kind === "outside").length, 2);
   });
 
+  test("finds the real problems beside what it leaves alone", () => {
+    const look = looks.find((candidate) => candidate.state === "broken" && candidate.view === "desktop")!;
+    const said = look.findings.map((finding) => `${finding.kind}: ${finding.message}`);
+    const expected = [
+      // Covers that let the text show: a drawing, a frame, a faint veil, and a clear wrapper labelled as a dialog.
+      /^contrast: "Pale words under a drawing" has 1\.9:1 contrast/u,
+      /^contrast: "Pale words inside a frame" has 1\.9:1 contrast/u,
+      /^contrast: "White words under a pale veil" has 2\.1:1 contrast/u,
+      /^contrast: "Pale words beside a clear wrapper\." has 1\.9:1 contrast/u,
+      // A menu bar and a list that are part of the page are not open popups.
+      /^covered: link "A link the menu bar hides" is covered by /u,
+      /^covered: button "Continue" is covered by /u,
+      // A control hidden from screen readers that Tab still reaches.
+      /^no-name: 2 controls have no accessible name, starting with button\.button\./u,
+      // A picture that holds a link is checked as text.
+      /^cut-off: "Start the free trial" is cut off on the right by its own box/u,
+      /^contrast: "Billed yearly, cancel any time\." has 1\.9:1 contrast/u,
+      // A scaled line that its clip shows in part.
+      /^contrast: "Pale words, scaled and partly clipped" has [\d.]+:1 contrast/u,
+    ];
+    for (const pattern of expected) assert.ok(said.some((line) => pattern.test(line)), `${pattern}\n${said.join("\n")}`);
+  });
+
   test("reports a page without a title or viewport", () => {
     assert.deepEqual(kinds(looks, "untitled", "phone"), ["document", "document"]);
   });
@@ -191,7 +214,7 @@ describe("ra check on the fixture site", () => {
 });
 
 describe("a look that never finishes", () => {
-  test("is stopped at the project's timeout and reported, and the run goes on", async () => {
+  test("is stopped at the project's timeout and reported, and the run goes on and ends", async () => {
     const copy = copySite();
     writeFileSync(
       join(copy, "ra.config.ts"),
@@ -199,21 +222,39 @@ describe("a look that never finishes", () => {
 export default defineConfig({
   app: { static: "." },
   views: ["desktop"],
-  timeout: 3000,
+  timeout: 2000,
   states: {
     stuck: { url: "/", steps: () => new Promise(() => {}) },
     waiting: { url: "/", expect: () => new Promise(() => {}) },
+    // Its timer would keep ra running for a minute after the run, were ra to wait for it.
+    sleeper: { url: "/", steps: () => new Promise((done) => setTimeout(done, 60_000)) },
+    // A page that keeps changing is waited for up to 2.5s, longer than the timeout itself.
+    moving: { url: "/", steps: (page) => page.evaluate(() => { setInterval(() => { document.documentElement.dataset.tick = String(Date.now()); }, 50); }) },
+    late: { url: "/late" },
     home: { url: "/" },
   },
 });
 `,
     );
+    const started = performance.now();
     const ran = await ra(["check", "--json"], copy);
+    const took = performance.now() - started;
     assert.equal(ran.status, 1, ran.err);
+    assert.ok(took < 30_000, `ra ended ${Math.round(took / 1000)}s after it started`);
     const looks = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
-    const said = (state: string) => looks.find((look) => look.state === state)!.findings.map((finding) => `${finding.kind}: ${finding.message}`);
-    assert.deepEqual(said("stuck"), ["steps: The steps for this state did not finish within 3s, so the look stopped there."]);
-    assert.deepEqual(said("waiting"), ["expect: The expect for this state did not finish within 3s, so the look stopped there."]);
+    const look = (state: string) => looks.find((candidate) => candidate.state === state)!;
+    const said = (state: string) => look(state).findings.map((finding) => `${finding.kind}: ${finding.message}`);
+    assert.deepEqual(said("stuck"), ["steps: The steps for this state did not finish within 2s, so the look stopped there."]);
+    assert.deepEqual(said("sleeper"), ["steps: The steps for this state did not finish within 2s, so the look stopped there."]);
+    assert.deepEqual(said("waiting"), ["expect: The expect for this state did not finish within 2s, so the look stopped there."]);
+    assert.deepEqual(said("moving"), []);
+    assert.ok(look("moving").notes.includes("The page never stopped changing; it was looked at while still moving."), look("moving").notes.join("\n"));
+    // What the checks found before the page stopped answering still stands.
+    assert.ok(said("late").includes("no-name: button.button has no accessible name, so a screen reader cannot say what it does."), said("late").join("\n"));
+    assert.ok(
+      said("late").some((line) => /^busy: The page stopped answering for [\d.]+s while ra waited for it to settle, so the look stopped there\.$/u.test(line)),
+      said("late").join("\n"),
+    );
     assert.deepEqual(said("home"), []);
   });
 });
