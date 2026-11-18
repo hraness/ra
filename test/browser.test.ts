@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
 import { serveStatic, type RunningApp } from "../src/app.ts";
 import type { Observation } from "../src/observe.ts";
+import { decodePng } from "../src/png.ts";
 
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const index = fileURLToPath(new URL("../src/index.ts", import.meta.url));
@@ -27,9 +28,10 @@ interface Ran {
   err: string;
 }
 
-function ra(args: string[], cwd = site): Promise<Ran> {
+function ra(args: string[], cwd = site, limit?: number): Promise<Ran> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, ...args], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    // A limit ends a run that would otherwise hang the suite.
+    const child = spawn(process.execPath, [cli, ...args], { cwd, stdio: ["ignore", "pipe", "pipe"], ...(limit === undefined ? {} : { timeout: limit }) });
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
@@ -84,6 +86,35 @@ describe("ra check on the fixture site", () => {
     }
   });
 
+  test("finds nothing under an open dialog whose frame scrolls", () => {
+    for (const view of ["desktop", "phone", "phone.dark"]) {
+      const look = looks.find((candidate) => candidate.state === "dialog" && candidate.view === view)!;
+      assert.deepEqual(look.findings.map((finding) => `${finding.kind}: ${finding.message}`), [], `dialog at ${view}`);
+    }
+  });
+
+  test("keeps a touch view's layout in its full picture, where contrast is read", () => {
+    // Chromium matches a mouse while it captures beyond the viewport; the rows
+    // above the button are shorter for a mouse, which would move it up.
+    const look = looks.find((candidate) => candidate.state === "tricky" && candidate.view === "phone")!;
+    const button = look.boxes.find((box) => box.key === 'link "Start now"');
+    assert.ok(button !== undefined && look.fullPicture !== null, look.boxes.map((box) => box.key).join(", "));
+    const picture = decodePng(readFileSync(look.fullPicture));
+    const x = Math.round(button.x + button.width / 2);
+    const y = Math.round(button.y + 6);
+    const at = (y * picture.width + x) * 4;
+    const pixel = [picture.data[at]!, picture.data[at + 1]!, picture.data[at + 2]!];
+    assert.ok(pixel.every((value) => value < 60), `the top of the dark button, at ${x},${y}, is ${pixel.join(",")} in the picture`);
+  });
+
+  test("looks at a page with its scripts off, and checks what it shows then", () => {
+    const look = looks.find((candidate) => candidate.state === "noscript")!;
+    const said = look.findings.map((finding) => `${finding.kind}: ${finding.message}`);
+    assert.deepEqual(kinds(looks, "noscript", "desktop"), ["contrast"], said.join("\n"));
+    assert.match(look.findings[0]!.message, /^"This line shows only when scripts are o…" has 1\.9:1 contrast/u);
+    assert.ok(!look.notes.some((note) => note.includes("never stopped changing")), look.notes.join("\n"));
+  });
+
   test("finds every planted problem", () => {
     const desktop = kinds(looks, "broken", "desktop");
     for (const kind of ["console", "contrast", "covered", "cut-off", "image", "no-name", "outside", "overlap", "request", "spill"]) {
@@ -97,6 +128,33 @@ describe("ra check on the fixture site", () => {
       assert.ok(phone.includes("small-target"), `broken at ${view} has small tap targets`);
     }
     assert.equal(desktop.filter((kind) => kind === "outside").length, 2);
+  });
+
+  test("finds the real problems beside what it leaves alone", () => {
+    const look = looks.find((candidate) => candidate.state === "broken" && candidate.view === "desktop")!;
+    const said = look.findings.map((finding) => `${finding.kind}: ${finding.message}`);
+    const expected = [
+      // Covers that let the text show: a drawing, a frame, a faint veil, and a clear wrapper labelled as a dialog.
+      /^contrast: "Pale words under a drawing" has 1\.9:1 contrast/u,
+      /^contrast: "Pale words inside a frame" has 1\.9:1 contrast/u,
+      /^contrast: "White words under a pale veil" has 2\.1:1 contrast/u,
+      /^contrast: "White words under an oklch veil" has 2\.1:1 contrast/u,
+      /^contrast: "White words under a mixed veil" has 2\.1:1 contrast/u,
+      /^contrast: "Pale words beside a clear wrapper\." has 1\.9:1 contrast/u,
+      // A menu bar and a list that are part of the page are not open popups.
+      /^covered: link "A link the menu bar hides" is covered by /u,
+      /^covered: button "Continue" is covered by /u,
+      // A sidebar whose own control would close it was not opened over the page.
+      /^covered: link "A link the open sidebar hides" is covered by /u,
+      // A control hidden from screen readers that Tab still reaches.
+      /^no-name: 2 controls have no accessible name, starting with button\.button\./u,
+      // A picture that holds a link is checked as text.
+      /^cut-off: "Start the free trial" is cut off on the right by its own box/u,
+      /^contrast: "Billed yearly, cancel any time\." has 1\.9:1 contrast/u,
+      // A scaled line that its clip shows in part.
+      /^contrast: "Pale words, scaled and partly clipped" has [\d.]+:1 contrast/u,
+    ];
+    for (const pattern of expected) assert.ok(said.some((line) => pattern.test(line)), `${pattern}\n${said.join("\n")}`);
   });
 
   test("reports a page without a title or viewport", () => {
@@ -160,6 +218,73 @@ describe("ra check on the fixture site", () => {
   });
 });
 
+describe("a look that never finishes", () => {
+  test("is stopped at the project's timeout and reported, and the run goes on and ends", async () => {
+    const copy = copySite();
+    writeFileSync(
+      join(copy, "ra.config.ts"),
+      `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({
+  app: { static: "." },
+  views: ["desktop"],
+  timeout: 2000,
+  states: {
+    stuck: { url: "/", steps: () => new Promise(() => {}) },
+    waiting: { url: "/", expect: () => new Promise(() => {}) },
+    // Its timer would keep ra running for a minute after the run, were ra to wait for it.
+    sleeper: { url: "/", steps: () => new Promise((done) => setTimeout(done, 60_000)) },
+    // A page that keeps changing is waited for up to 2.5s, longer than the timeout itself.
+    moving: { url: "/", steps: (page) => page.evaluate(() => { setInterval(() => { document.documentElement.dataset.tick = String(Date.now()); }, 50); }) },
+    late: { url: "/late" },
+    // On a touch view, the page freezes once ra holds its hover rule for the pictures.
+    held: { url: "/held", views: ["phone"] },
+    home: { url: "/" },
+  },
+});
+`,
+    );
+    const started = performance.now();
+    const ran = await ra(["check", "--json"], copy, 120_000);
+    const took = performance.now() - started;
+    assert.equal(ran.status, 1, ran.err);
+    assert.ok(took < 45_000, `ra ended ${Math.round(took / 1000)}s after it started`);
+    const looks = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+    const look = (state: string) => looks.find((candidate) => candidate.state === state)!;
+    const said = (state: string) => look(state).findings.map((finding) => `${finding.kind}: ${finding.message}`);
+    assert.deepEqual(said("stuck"), ["steps: The steps for this state did not finish within 2s, so the look stopped there."]);
+    assert.deepEqual(said("sleeper"), ["steps: The steps for this state did not finish within 2s, so the look stopped there."]);
+    assert.deepEqual(said("waiting"), ["expect: The expect for this state did not finish within 2s, so the look stopped there."]);
+    assert.deepEqual(said("moving"), []);
+    assert.ok(look("moving").notes.includes("The page never stopped changing; it was looked at while still moving."), look("moving").notes.join("\n"));
+    // What the checks found before the page stopped answering still stands.
+    assert.ok(said("late").includes("no-name: button.button has no accessible name, so a screen reader cannot say what it does."), said("late").join("\n"));
+    assert.ok(
+      said("late").some((line) => /^busy: The page stopped answering for [\d.]+s while ra waited for it to settle, so the look stopped there\.$/u.test(line)),
+      said("late").join("\n"),
+    );
+    // Where the frozen page is caught depends on playwright-core: an older one never gives up on the
+    // picture, so ra's own limit stops it there; a newer one does, and then ra's checks run out of time.
+    assert.equal(said("held").length, 1, said("held").join("\n"));
+    assert.match(said("held")[0]!, /^busy: The page stopped answering/u);
+    assert.deepEqual(said("home"), []);
+  });
+
+  test("waits as long as the largest timeout, which Node's timers can just hold", async () => {
+    const copy = copySite();
+    writeFileSync(
+      join(copy, "ra.config.ts"),
+      `import { defineConfig } from ${JSON.stringify(index)};
+export default defineConfig({ app: { static: "." }, views: ["desktop"], timeout: 2147483647, states: { home: { url: "/" } } });
+`,
+    );
+    const ran = await ra(["check", "--json"], copy, 120_000);
+    assert.equal(ran.status, 0, ran.err);
+    assert.doesNotMatch(ran.err, /TimeoutOverflowWarning/u);
+    const [look] = (JSON.parse(ran.out) as { looks: Observation[] }).looks;
+    assert.deepEqual(look!.findings, []);
+  });
+});
+
 describe("ra look", () => {
   test("describes one state at one view, with pictures", async () => {
     const ran = await ra(["look", "home", "--at", "phone", "--json"]);
@@ -196,7 +321,7 @@ describe("ra look", () => {
   test("says how to name a state that does not exist, and exits 2", async () => {
     const ran = await ra(["look", "nowhere"]);
     assert.equal(ran.status, 2);
-    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, broken, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
+    assert.match(ran.err, /There is no state named "nowhere"\. The states are: home, tricky, dialog, noscript, broken, untitled, strict, plain, mislabeled, outage, faulty, leave, detours\./u);
   });
 });
 

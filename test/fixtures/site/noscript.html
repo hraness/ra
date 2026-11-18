@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — Without scripts</title>
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <main>
+      <h1>A page that also works without scripts</h1>
+      <p id="ran">Scripts have not run.</p>
+      <!-- Only a reader without scripts sees this, and it is too pale on purpose. -->
+      <noscript><p class="faint">This line shows only when scripts are off.</p></noscript>
+    </main>
+    <script>
+      document.getElementById("ran").textContent = "Scripts ran.";
+      // A timer that would keep a page busy, if it ran at all.
+      setInterval(() => document.body.setAttribute("data-tick", String(Date.now())), 50);
+    </script>
+  </body>
+</html>

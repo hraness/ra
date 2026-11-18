@@ -116,6 +116,12 @@ export interface StateSpec {
   scroll?: boolean;
   /** Whether this state can also be looked at on a deployment. States with a world or steps are local unless marked. */
   live?: boolean;
+  /**
+   * Set false to look at the page with its scripts turned off, as a reader
+   * without JavaScript or a crawler sees it. Every check still runs. It is
+   * still only a page load, so it does not make a state local.
+   */
+  javascript?: boolean;
 }
 
 export interface ViewSpec {
@@ -275,7 +281,7 @@ export function mergeWorlds(base: World | undefined, over: World | undefined): R
 
 const CONFIG_KEYS = ["app", "views", "world", "states", "accept", "tapTarget", "timeout", "settle", "locale", "timezone"];
 const STATE_KEYS = [
-  "url", "note", "world", "storage", "session", "cookies", "clock", "ready", "steps", "see", "expect", "status", "views", "accept", "scroll", "live",
+  "url", "note", "world", "storage", "session", "cookies", "clock", "ready", "steps", "see", "expect", "status", "views", "accept", "scroll", "live", "javascript",
 ];
 const WORLD_KEYS = ["replies", "allow", "block", "upstreams"];
 
@@ -334,15 +340,41 @@ function checkAccept(list: Accept[] | undefined, what: string): Accept[] {
   return list;
 }
 
+/** What kind of value this is, said in a way that cannot fail whatever the value. */
+function kindOf(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "a list";
+  if (typeof value === "object") return "an object";
+  return `a ${typeof value}`;
+}
+
+/** A wrong value as a message shows it: a string, number or boolean as written, anything else by its kind. */
+function shown(value: unknown): string {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return kindOf(value);
+}
+
+/** The longest a timer can wait: Node fires any longer or non-positive one at once. */
+export const LONGEST_WAIT = 2_147_483_647;
+
 /** Checks a config and fills in what it leaves out. */
 export function readConfig(config: Config, root: string, file: string | null = null): Project {
   if (config === null || typeof config !== "object") throw new ConfigError("The config must export an object. Wrap it in defineConfig({...}).");
   checkKeys(config, CONFIG_KEYS, "The config");
+  const timeout: unknown = config.timeout;
+  if (timeout !== undefined && !(typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0 && timeout <= LONGEST_WAIT)) {
+    throw new ConfigError(
+      `The timeout is ${shown(timeout)}; it takes milliseconds above 0 and up to ${LONGEST_WAIT}, such as 30000.`,
+    );
+  }
   checkWorld(config.world, "world");
   const custom = (config.views ?? []).filter((view): view is ViewSpec => typeof view !== "string");
   for (const view of custom) {
-    if (!/^[a-z][a-z0-9-]*$/u.test(view.name) || !(view.width > 0) || !(view.height > 0)) {
-      throw new ConfigError(`A view needs a lowercase name, a width and a height; got ${JSON.stringify(view)}.`);
+    const sized = (size: unknown) => typeof size === "number" && size > 0;
+    if (view === null || typeof view !== "object" || typeof view.name !== "string" || !/^[a-z][a-z0-9-]*$/u.test(view.name) || !sized(view.width) || !sized(view.height)) {
+      const got = view === null || typeof view !== "object" ? shown(view) : `name ${shown(view.name)}, width ${shown(view.width)} and height ${shown(view.height)}`;
+      throw new ConfigError(`A view needs a lowercase name, a width and a height; got ${got}.`);
     }
   }
   const viewNames = config.views === undefined ? ["desktop", "phone"] : config.views.map((view) => (typeof view === "string" ? view : view.name));
@@ -358,6 +390,9 @@ export function readConfig(config: Config, root: string, file: string | null = n
       throw new ConfigError(`State "${name}" needs a url, such as "/pricing".`);
     }
     checkKeys(spec, STATE_KEYS, `State "${name}"`);
+    if (spec.javascript !== undefined && typeof spec.javascript !== "boolean") {
+      throw new ConfigError(`State "${name}" has javascript set to ${shown(spec.javascript)}; it takes true or false.`);
+    }
     checkWorld(spec.world, `State "${name}" world`);
     const { world, views: ownViews, accept, ...rest } = spec;
     return {

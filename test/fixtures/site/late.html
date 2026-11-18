@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — Stops answering late</title>
+    <link rel="stylesheet" href="/site.css" />
+    <style>
+      main { min-height: 300vh; padding: 20px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Stops answering late</h1>
+      <p>Once this page has been scrolled down and back to the top, it keeps changing, and soon after its script never gives the thread back.</p>
+      <button class="button" type="button"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" /></svg></button>
+    </main>
+    <script>
+      let down = false;
+      let ticking = 0;
+      let freeze = 0;
+      addEventListener("scroll", () => {
+        clearTimeout(freeze);
+        if (scrollY > 0) {
+          down = true;
+          return;
+        }
+        if (!down) return;
+        ticking ||= setInterval(() => { document.documentElement.dataset.tick = String(Date.now()); }, 50);
+        freeze = setTimeout(() => { for (;;) {} }, 1500);
+      });
+    </script>
+  </body>
+</html>

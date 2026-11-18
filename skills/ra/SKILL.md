@@ -79,6 +79,8 @@ Prefer a named state in `ra.config.ts`, so the next look is one command:
 - An error status that the world is told to give is the state itself. ra reports how the page handles it, not the error.
 - For calls made by the app's server, use `upstreams` and pass `{upstream.NAME}` to the app in `app.env`.
 - `storage`, `cookies` and `clock` set up the rest. `steps(page)` clicks through to a state after the page loads.
+- `javascript: false` looks at the page with its scripts off, as a reader without JavaScript or a crawler sees it. Every check still runs. It is still a read-only page load, so a run against a deployment may use it without `live`. `see` cannot match text inside `<noscript>`; check that text in `expect` with a CSS locator.
+- A look never hangs the run. Steps, an `expect` or ra's own checks that take longer than the project's `timeout` (30 seconds by default) end the look with a `steps`, `expect` or `busy` finding, and the next look runs. A state's steps are timed as a whole, so a long flow may need a larger `timeout`; ra's waits for the page to settle and for its images come on top of it.
 
 For a one-off interaction, use `--then`. It runs Playwright code with `page` in scope before the look and prints what the code returns:
 

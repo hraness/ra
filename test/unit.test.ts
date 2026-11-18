@@ -120,6 +120,45 @@ describe("views and config", () => {
     assert.ok("GET /api/inbox" in byName.empty!.world.replies);
   });
 
+  test("turns a state's scripts off without making it local, and takes only true or false for it", () => {
+    const project = readConfig({ states: { bare: { url: "/", javascript: false } } }, scratch);
+    assert.equal(project.states[0]!.javascript, false);
+    assert.equal(project.states[0]!.local, false);
+    // A string or a number is shown as written; anything else, which may not print, by its kind.
+    for (const [value, said] of [["false", '"false"'], [1, "1"], [() => false, "a function"], [1n, "a bigint"], [null, "null"], [[true], "a list"]] as const) {
+      assert.throws(
+        () => readConfig({ states: { bare: { url: "/", javascript: value } } } as never, scratch),
+        (error: unknown) => error instanceof ConfigError && error.message === `State "bare" has javascript set to ${said}; it takes true or false.`,
+      );
+    }
+  });
+
+  test("takes a timeout that a timer can wait for, and refuses one that would end every look at once", () => {
+    assert.equal(readConfig({ states: { home: "/" }, timeout: 2_147_483_647 }, scratch).timeout, 2_147_483_647);
+    for (const [value, said] of [[0, "0"], [-1, "-1"], [Infinity, "Infinity"], [2 ** 31, "2147483648"], [Number.NaN, "NaN"], ["30000", '"30000"'], [30_000n, "a bigint"]] as const) {
+      assert.throws(
+        () => readConfig({ states: { home: "/" }, timeout: value } as never, scratch),
+        (error: unknown) =>
+          error instanceof ConfigError && error.message === `The timeout is ${said}; it takes milliseconds above 0 and up to 2147483647, such as 30000.`,
+      );
+    }
+  });
+
+  test("says what is wrong with a view, whatever was given for it", () => {
+    for (const [view, said] of [
+      [null, "null"],
+      [7, "7"],
+      [{ name: "Kiosk", width: 1080, height: 1920 }, 'name "Kiosk", width 1080 and height 1920'],
+      [{ name: "kiosk", width: 1080n, height: 1920 }, 'name "kiosk", width a bigint and height 1920'],
+      [{ name: Symbol("kiosk"), width: 1080, height: 1920 }, "name a symbol, width 1080 and height 1920"],
+    ] as const) {
+      assert.throws(
+        () => readConfig({ views: [view], states: { home: "/" } } as never, scratch),
+        (error: unknown) => error instanceof ConfigError && error.message === `A view needs a lowercase name, a width and a height; got ${said}.`,
+      );
+    }
+  });
+
   test("refuses a rule or an answer it cannot use when the config loads, and says how to write it", () => {
     const load = (world: object) => () => readConfig({ world, states: { home: "/" } } as never, scratch);
     assert.throws(load({ replies: { "get /api/me": { json: {} } } }), /^ConfigError: world\.replies: "get \/api\/me" needs its method in capitals, as in "GET \/api\/me"\.$/u);

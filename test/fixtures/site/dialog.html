@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fixture — An open search dialog</title>
+    <link rel="stylesheet" href="/site.css" />
+    <style>
+      /* A search dialog, open over the page. Its frame scrolls, and the later
+         results are cut off at its bottom edge, below which the dimmed and
+         blurred page shows: none of that is the results' contrast. */
+      dialog { box-sizing: border-box; width: 90%; max-width: 40rem; height: max-content; max-height: calc(100% - 8rem); margin: 4rem auto auto; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--wash); color: var(--soft); }
+      dialog[open] { display: flex; }
+      dialog::backdrop { background-color: #545864a8; backdrop-filter: blur(4px); }
+      .frame { display: flex; flex-direction: column; flex-grow: 1; padding: 24px; overflow: auto; }
+      .frame h2 { margin: 0 0 12px; font-size: 18px; color: var(--ink); }
+      ol { list-style: none; margin: 0; padding: 0; }
+      li { margin-block-end: 12px; padding: 16px; background: var(--paper); }
+      li p { margin: 0; font-size: 14px; line-height: 1.5; }
+      mark { background: none; color: inherit; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>A page under a search dialog</h1>
+      <p>The page has ordinary text from top to bottom. It sits under the dialog's backdrop while the dialog is open, dimmed and blurred, and nothing on it can be read or pressed until the dialog closes.</p>
+      <p>The dialog holds more results than fit in it. It stops above the bottom of the screen and its frame scrolls, so the later results are cut off at the frame's bottom edge.</p>
+      <p>Below the dialog there is a band where only the backdrop shows. Under that band the page's paragraphs go on, so the band carries the blurred shapes of these lines.</p>
+      <p>The page has ordinary text from top to bottom. It sits under the dialog's backdrop while the dialog is open, dimmed and blurred, and nothing on it can be read or pressed until the dialog closes.</p>
+      <p>The dialog holds more results than fit in it. It stops above the bottom of the screen and its frame scrolls, so the later results are cut off at the frame's bottom edge.</p>
+      <p>Below the dialog there is a band where only the backdrop shows. Under that band the page's paragraphs go on, so the band carries the blurred shapes of these lines.</p>
+      <p>The page has ordinary text from top to bottom. It sits under the dialog's backdrop while the dialog is open, dimmed and blurred, and nothing on it can be read or pressed until the dialog closes.</p>
+      <p>The dialog holds more results than fit in it. It stops above the bottom of the screen and its frame scrolls, so the later results are cut off at the frame's bottom edge.</p>
+      <p>Below the dialog there is a band where only the backdrop shows. Under that band the page's paragraphs go on, so the band carries the blurred shapes of these lines.</p>
+      <p>The page has ordinary text from top to bottom. It sits under the dialog's backdrop while the dialog is open, dimmed and blurred, and nothing on it can be read or pressed until the dialog closes.</p>
+      <p>The dialog holds more results than fit in it. It stops above the bottom of the screen and its frame scrolls, so the later results are cut off at the frame's bottom edge.</p>
+      <p>Below the dialog there is a band where only the backdrop shows. Under that band the page's paragraphs go on, so the band carries the blurred shapes of these lines.</p>
+    </main>
+    <dialog aria-label="Search">
+      <div class="frame">
+        <h2>Results for "tea"</h2>
+        <ol>
+          <li><p>Result one. How to brew <mark>tea</mark> leaves at the right heat.</p></li>
+          <li><p>Result two. Green <mark>tea</mark> and black, and what sets them apart.</p></li>
+          <li><p>Result three. A pot of <mark>tea</mark> for six, with cups to match.</p></li>
+          <li><p>Result four. Storing <mark>tea</mark> away from light and damp air.</p></li>
+          <li><p>Result five. The second flush, and why its <mark>tea</mark> costs more.</p></li>
+          <li><p>Result six. Iced <mark>tea</mark> without a bitter taste.</p></li>
+          <li><p>Result seven. Loose leaf or bags: the same <mark>tea</mark> both ways.</p></li>
+          <li><p>Result eight. Water hardness and what it does to a cup.</p></li>
+          <li><p>Result nine. A timer for every kind of <mark>tea</mark> in the shop.</p></li>
+          <li><p>Result ten. Cleaning a stained pot without scratching it.</p></li>
+          <li><p>Result eleven. Gifts for someone who drinks <mark>tea</mark> every day.</p></li>
+          <li><p>Result twelve. Opening hours of the shop over the holidays.</p></li>
+        </ol>
+      </div>
+    </dialog>
+    <script>document.querySelector("dialog").showModal();</script>
+  </body>
+</html>

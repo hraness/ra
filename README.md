@@ -68,7 +68,7 @@ Browser checks are slow, flaky when written carelessly, and easy to write in way
 ra needs Node 22.18 or later and a Playwright in your project: `playwright-core`, `playwright` or `@playwright/test`. Install ra from its GitHub release:
 
 ```sh
-bun add -d https://github.com/hraness/ra/releases/download/v0.1.1/hraness-ra-0.1.1.tgz playwright-core
+bun add -d https://github.com/hraness/ra/releases/download/v0.1.2/hraness-ra-0.1.2.tgz playwright-core
 bunx --no-install playwright-core install chromium
 ```
 
@@ -185,6 +185,7 @@ The browser follows a redirect by itself, so routing sees only the first request
 - `accept`: findings to accept for this state.
 - `scroll: false`: stops ra scrolling through the page.
 - `live: true`: marks the state as safe to look at on a deployment.
+- `javascript: false`: looks at the page with its scripts turned off, as a reader without JavaScript or a crawler sees it, `<noscript>` content included. Every check still runs. It is still a read-only page load, so it does not make a state local, and a run against a deployment may use it without `live`. With scripts off, `session` is not set, since no script could read it, and `see` cannot match text inside `<noscript>`; check that text in `expect` with a CSS locator.
 
 A state with its own world or steps only makes sense on your machine. Against a deployment, `ra check --url https://…` skips such states unless they are marked `live`, and `ra look` refuses them.
 
@@ -192,7 +193,7 @@ Against a deployment, the deployment answers for itself: no reply rule stands in
 
 **`accept`** lists findings you have decided to live with: `{ finding: "contrast", match: "hero", why: "The hero text sits on a photo we test by hand." }`. A `why` is required, and it is printed wherever the finding appears. When every state is checked, `ra check` names the accept entries that matched nothing, so stale ones get removed.
 
-Other settings: `tapTarget` (default 24), `timeout` (default 30000), `settle` (default 5000), `locale` (default `en-US`) and `timezone` (default `UTC`).
+Other settings: `tapTarget` (default 24), `timeout` (default 30000), `settle` (default 5000), `locale` (default `en-US`) and `timezone` (default `UTC`). `timeout` is how long ra waits for a page to load and for its `ready` mark, and how long a state's `steps`, its `expect` and ra's own checks may take. A part that runs longer is reported, and the run goes on with the next look. A state's `steps` and the `--then` code are timed as a whole, so a long flow may need a larger `timeout`. It takes milliseconds above 0 and up to 2147483647.
 
 ## What it finds
 
