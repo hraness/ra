@@ -1,7 +1,7 @@
 {
   "name": "@hraness/ra",
   "version": "0.1.5",
-  "description": "Look at an app's interface the way a person would — a real browser, a fake world — and say in words what is wrong. Made for coding agents.",
+  "description": "ra opens your web app in Chromium, inside a fake world you describe, and tells your coding agent in sentences what a person would find wrong.",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -10,7 +10,7 @@
   },
   "homepage": "https://github.com/hraness/ra#readme",
   "bugs": "https://github.com/hraness/ra/issues",
-  "keywords": ["ui", "playwright", "agents", "browser", "accessibility", "layout", "visual-review"],
+  "keywords": ["ui-testing", "coding-agents", "playwright", "chromium", "accessibility", "layout", "contrast", "claude-code", "agent-skills", "cli"],
   "bin": {
     "ra": "./dist/cli.js"
   },

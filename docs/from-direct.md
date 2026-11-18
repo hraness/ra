@@ -10,7 +10,7 @@ ra keeps Direct's core idea and drops nearly everything built around it. This pa
 - **A fixture world.** It replaced only what lies outside the app, so a state is reproducible.
 - **States you open by URL.** Hard-to-reach states (empty, failed, overflowing) became one navigation away.
 - **Fail closed.** Its fetch firewall stopped requests the scenario did not expect, so a fixture run could not quietly reach a live system.
-- **Honesty about limits.** Coverage claims said whether a check touched fixtures or the real system, and the docs said plainly that a fixture run does not test what the fixtures replace.
+- **Stated limits.** Coverage claims said whether a check touched fixtures or the real system, and the docs said that a fixture run does not test what the fixtures replace.
 
 ra keeps all five.
 

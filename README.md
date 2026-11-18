@@ -1,33 +1,127 @@
 # ra
 
-ra looks at your app's interface the way a person would and tells you, in words, what is wrong with it. It runs the real app in a real browser against a fake world.
+[![Release](https://img.shields.io/github/v/release/hraness/ra?label=release)](https://github.com/hraness/ra/releases/latest)
+[![CI](https://github.com/hraness/ra/actions/workflows/ci.yml/badge.svg)](https://github.com/hraness/ra/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
-It is made for coding agents. An agent that changes a page can run `ra look` and read a 60-line digest: what is on the page, what is wrong, and where the pictures are if it needs one. It does not have to write a test, read a screenshot or guess what a layout engine will do.
+ra opens your web app in Chromium, inside a fake world you describe, and tells your coding agent in sentences what a person would find wrong. It is UI testing for agents, made to run in the middle of a change.
+
+A coding agent that checks a UI change with a screenshot leaves a model to judge it, and [models misjudge the measurements](#how-it-compares) that layout bugs come down to. ra measures them: boxes come from the layout engine and contrast from the painted pixels, so CI has no screenshot baselines to approve. Each finding is one sentence that names the element and, where it can, says by how much.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/media/ra-look-dark.png">
+  <img src=".github/media/ra-look.png" width="830" alt="A phone screenshot of ra's broken fixture page with seven numbered problems, beside the sentences ra printed for them: the page scrolls sideways by 531px, a button's label is cut off by 84px, a long word runs 119px past its box, two lines are drawn over each other, a Pay now button is covered by another element, two tap targets are 18 by 18 pixels, and grey text has 1.9:1 contrast.">
+</picture>
+
+That is `ra look broken --at phone` on [a fixture page](test/fixtures/site/broken.html) full of planted problems. Its twin, [`tricky.html`](test/fixtures/site/tricky.html), is full of things that only look wrong, and ra must print nothing for it.
+
+The page runs inside a fake world: the API replies you write, the hosts you block, and stand-ins for the services your server calls. A request that nothing in the world answers is stopped and reported. You name each state once, such as an empty inbox, a failed payment, or a name 80 characters long, and ra looks at it on desktop, on a phone, and in dark mode.
+
+## Start
+
+ra needs Node 22.18 or later, on macOS or Linux. Install it from its GitHub release with npm, then look at a page of your running app:
+
+```sh
+npm install -D https://github.com/hraness/ra/releases/download/v0.1.5/hraness-ra-0.1.5.tgz playwright-core
+npx playwright-core install chromium
+npx ra look http://127.0.0.1:3000/ --at phone
+```
+
+If your project already has `playwright` or `@playwright/test`, leave `playwright-core` out and install the browser with `npx playwright install chromium`. That first look needs no config. It prints the findings, an outline of the page, and a sketch of its layout, and it writes pictures to `.ra/look/`. To check every screen at once, [name your states](#setting-up) and run `ra check`.
+
+## For coding agents
+
+ra comes with a skill, [`skills/ra/SKILL.md`](skills/ra/SKILL.md), that teaches a coding agent when to reach for ra and how to read what it prints. It ships in the package. Copy it to where your agent reads skills; for Claude Code, that is:
+
+```sh
+mkdir -p .claude/skills
+cp -R node_modules/@hraness/ra/skills/ra .claude/skills/
+```
+
+The loop:
+
+1. Run `ra look <state> --at phone`, read the findings and the outline, and fix what is wrong.
+2. Run `ra look` again to confirm. Run `ra check` before handing off.
+3. For a change with a wide reach, run `ra snap` first and `ra diff` afterwards.
+4. Open a picture only when the words leave a doubt, such as how a gradient looks. Every look writes `.ra/look/<state>.<view>.png` (the first screen) and `.full.png` (the whole page).
+
+A look is short, and it is text the agent can act on. On ra's fixture site, a page with nothing wrong prints 52 lines, about 500 tokens: “no findings”, an outline whose lines map onto `getByRole`, a sketch of the layout, and where the pictures are. The broken page at phone prints 123 lines, about 1,900 tokens, for 37 findings.
+
+<details>
+<summary>A look at a page with nothing wrong, trimmed</summary>
 
 ```
-$ ra check
-ra check — 5 states, 11 looks in 6.8s — http://127.0.0.1:63519
+$ npx ra look home --at desktop
+home at desktop (1440×900)
+http://127.0.0.1:57437/ — 200 — "Fixture — Home"
+page 1440×1237, 3 requests, 1.1s
 
-✗ broken  /broken
-  cut-off       "Subscribe to updates" is cut off on the right by its own box (84px hidden).
-                at button.button.cut "Subscribe to updates"
-  covered       button "Pay now" is covered by span.veil; a click or tap on it would land on that instead.
-                at button.button "Pay now"
-  contrast      "This grey text is too pale to read comf…" has 1.9:1 contrast (#b9bdc7 on #ffffff); text this size needs 4.5:1.
-                at p.faint "This grey text is too pale to read comf…"
-  outside       The page asked api.example.com for data (GET https://api.example.com/v1/me); nothing in its world answers. Give api.example.com a reply, or list it under allow or block.
-  page-scroll   The page scrolls sideways by 531px. Sticking out: div.too-wide "This box is 900 pixels wide whatever th…" (900px wide, ends 530px past the edge). [phone, phone.dark]
-  …
-✗ leave  /leave
-  load     The page did not load, because a redirect from /leave sent it outside its world, to https://example.com/ (net::ERR_PROXY_CONNECTION_FAILED at http://127.0.0.1:63519/leave). The outside finding says more.
-  outside  A redirect from /leave tried to take the page to https://example.com/, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for example.com cannot answer it. Give /leave a reply that does not redirect there, or list example.com under block to stop it quietly, or under allow to let it through.
+no findings
 
-✓ home
-✓ tricky
+outline
+  banner
+    link "Fixture" → /
+    navigation "Main"
+      link "Tricky" → /tricky
+      link "Broken" → /broken
+      link "App" → /app
+  main
+    heading "A page with nothing wrong" [level=1]
+    paragraph: This page is the control. Whatever ra reports here is a false alarm, at any width and in either colour scheme.
+    link "Open the app" → /app
+    …
+    heading "A form" [level=2]
+    textbox "Email"
+    checkbox "Send me news"
+    button "Sign up"
+  contentinfo
+    …
 
-20 findings in 3 of 5 states. Look closer: ra look broken --at desktop
-browser: Chromium 145.0.7632.6, playwright-core 1.58.2, ~/Library/Caches/ms-playwright/chromium-1208/…/Google Chrome for Testing
+layout
+  header.top                        1440×65 at 0,0  sticky, 3 items in nav, 3 across
+    nav "Main"                      192×40 at 1228,12  3 items, 3 across
+  main "A page with nothing wrong"  960×1027 at 240,65  3 items in ul.cards, 3 across
+    form                            920×176 at 260,836  3 items stacked
+  footer                            1440×145 at 0,1092  3 items in nav, 3 across
+    nav "Footer"                    1400×40 at 20,1117  3 items, 3 across
+
+pictures: .ra/look/home.desktop.png (first screen), .ra/look/home.desktop.full.png (whole page)
 ```
+
+</details>
+
+## How it compares
+
+An agent that wants to know whether its UI change worked has three easy options, and each misses something.
+
+**A screenshot for the model to judge.** Models are weakest at the measurements that layout bugs come down to. In [UI-Lens](https://cvpr.thecvf.com/virtual/2026/poster/38861) (CVPR 2026), ten multimodal models looked for defects on 4,759 Chinese-language pages annotated by design experts. Their task-average F1 was 20.36% for text overflow and 31.21% for container overlap, and on tasks that need fine-grained element boundaries the authors found performance “near random”. A screenshot also shows only what fits in it: a picture of the screen crops whatever makes the page scroll sideways, and a picture of a long page is scaled down before the model sees it. ra takes those measurements from the browser: boxes from the layout engine, and contrast from the painted pixels, read with the text shown and with it hidden.
+
+**A Playwright script against the real network.** Browser tests flake far more than most tests. At Google, 1.65% of all tests were flaky, against 10.45% of Java WebDriver tests and 18.72% of Python ones ([Google Testing Blog, 2017](https://testing.googleblog.com/2017/04/where-do-our-flaky-tests-come-from.html)). A 2025 study found that “75% of flaky tests across all projects belong to a cluster” of tests that fail together, with “intermittent networking issues and instabilities in external dependencies as the predominant causes of systemic flakiness” ([Parry et al.](https://arxiv.org/abs/2504.16777)). Playwright's own advice is “Only test what you control” and to “use the Playwright Network API and guarantee the response needed” ([best practices](https://playwright.dev/docs/best-practices)). ra does that for every state, with no test code. Its world is fake by default, and a request that nothing in it answers is stopped and reported.
+
+**An accessibility snapshot.** A tree of roles and names is text a model can read, but it leaves out colour, geometry, and stacking order, so it cannot show low contrast, overlap, clipping, or a covered button. [Playwright's MCP docs](https://playwright.dev/mcp/snapshots) suggest adding screenshots where layout matters, and describe acting on screenshots as “Approximate — requires coordinate guessing”. ra prints the same kind of outline and puts measured findings beside it.
+
+| | Screenshot to a model | Script against the network | Accessibility snapshot | ra |
+| --- | --- | --- | --- | --- |
+| Who decides what is wrong | The model, by eye | Your assertions | The model, from text | Measurements |
+| Contrast, overlap, clipping, covering | Often misjudged | Only what you assert | Not in the tree | Measured and reported |
+| Live services in the loop | Unless you mock them | Unless you mock them | Unless you mock them | Never; a request nothing answers is reported |
+| Empty, failing, and overflowing states | Reached by hand | Mocks you write | Reached by hand | Named once in a config |
+
+## In use
+
+So far ra runs only on Hraness's own sites: nine of them, including docs and marketing sites, a payment form, a mockup editor, and a phone-first web app. One full run of all nine is about 200 states and 700 looks, at about 1–3 seconds a look in CI.
+
+In its first two days on those sites, ra's findings led to 22 fixes. Of those, 19 came from its built-in checks: seven for contrast; six for text cut off, text spilling, or sideways scroll; three for small tap targets; and one each for a failed request, a console error, and a covered control. Some of them:
+
+- **Sideways scroll that a screenshot crops away.** An email field kept its default width. With the button beside it, a hero scrolled sideways at 320–374px, and up to 390px in Spanish.
+- **A link cut off on every page.** At 320px, a docs site's header cut its Install link off by 40px. At 390px the page was 410px wide.
+- **One colour, 106 findings.** A faint text colour, used for rows, headings, and a caption, measured 3.2–3.4:1 in light mode and 4.0–4.2:1 in dark. One token change, to 5.1:1 and 6.4:1, fixed every place it appeared.
+- **Only in production.** A 404 page's links went through the app's router. Production answered the router's prefetch with 500 and 404, and the local server did not. `ra check --url` against the deployment, still in a closed world, caught it.
+- **Hidden but reachable.** ra reported controls under a list panel as covered. Tab and screen readers could still reach them, until the part underneath was made `inert`.
+
+The same sites deleted at least 1,772 lines of hand-written browser scripts in favour of ra states. Three of those scripts had never run in CI.
+
+A false alarm counts as a bug in ra. Those sites turned up 23 patterns that ra misjudged in its first two days, and each is now fixed and reproduced in ra's tests.
 
 ## When it is worth it
 
@@ -35,37 +129,46 @@ Browser checks are slow, flaky when written carelessly, and easy to write in way
 
 **Use ra when:**
 
-- **The question is "what does a person see here?"** For example: does this fit at 320px, does dark mode keep the text readable, is anything covering the button, does the long name spill out of its card. Only the layout engine knows, with real fonts, the real cascade and real widths.
+- **The question is “what does a person see here?”** For example, whether this fits at 320px, whether dark mode keeps the text readable, whether anything covers the button, and whether the long name spills out of its card. Only the layout engine knows, because the answer depends on the fonts, the cascade, and the width of the screen.
 - **The state is expensive to reach by hand.** Examples are an empty inbox, a failed payment, a 3,000-row table, an upstream returning 500, a name 80 characters long, or a clock just before midnight. You name each one once as a URL plus a fake world, and from then on one command reaches it.
-- **A change has a visual blast radius.** Examples are a CSS refactor, a design-token change or a dependency bump. Run `ra snap`, make the change, then run `ra diff`. It tells you which elements moved, resized, appeared or vanished, which outline lines changed, and which findings are new.
+- **A change has a visual blast radius.** Examples are a CSS refactor, a design-token change, or a dependency bump. Run `ra snap`, make the change, then run `ra diff`. It tells you which elements moved, resized, appeared, or vanished, which outline lines changed, and which findings are new.
 - **An agent is changing UI.** It works from text it can act on, and opens a picture only when the text is not enough.
 
 **Do not use ra for:**
 
 - **Logic.** If it can be tested without a browser, test it without one.
-- **Restating the implementation.** Asserting `toHaveCSS("color", "rgb(…)")` or a class name proves that you wrote what you wrote. ra asks what a person would ask instead: can this be read, can it be reached, does it fit.
+- **Restating the implementation.** Asserting `toHaveCSS("color", "rgb(…)")` or a class name proves that you wrote what you wrote. ra asks what a person would ask instead: whether the text can be read, whether the control can be reached, and whether it fits.
 - **Proving a live system works.** ra closes the world on purpose. Smoke tests and monitoring against real services do that job. `ra check --url https://…` against a deployment checks what the deployment *shows*, and the outside world stays closed even then.
 - **Pixel baselines in CI, or coverage ledgers.** Baselines drift with fonts and anti-aliasing, and people re-approve them without looking. Snapshots in ra live on your machine for the length of one change. CI runs `ra check`, which has no baselines.
 - **Cross-browser matrices.** ra drives Chromium only. Use Playwright Test when WebKit- or Firefox-specific behaviour matters.
-- **A full accessibility audit.** ra reports what a person would trip over: unnamed controls, missing alt text, low painted contrast and small tap targets. Run axe or a manual audit for the rest.
+- **A full accessibility audit.** ra reports what a person would trip over: unnamed controls, missing alt text, low painted contrast, and small tap targets. Run axe or a manual audit for the rest.
+
+## Limits
+
+- ra drives Chromium only, and it is not a full accessibility audit; see [when it is worth it](#when-it-is-worth-it).
+- It runs on macOS and Linux.
+- Placeholder text is not checked for contrast yet.
+- Pictures and contrast cover at most the first 12,000px of a page. ra says so when a page is taller.
+- When a page scrolls inside an element rather than as a whole, its pictures show that element's first screen, and ra says so.
+- ra is new. So far it runs only on Hraness's own sites.
 
 ## Rules
 
-1. **Real app, real browser, fake world.** ra serves or starts your actual app and drives a real Chromium. Only what lies *outside* the app is fake.
+1. **Only the world is fake.** ra serves or starts your actual app and drives Playwright's Chromium. What lies *outside* the app answers as you describe it.
 2. **A state is a URL into a world.** A state is an address plus the answers the outside world gives: a path, its fake API replies, storage, cookies, a clock, and optional steps. It needs no fixtures database or test build.
-3. **Looking costs text, not pixels.** Every look prints:
+3. **A look is text first.** Every look prints:
    - an accessibility outline whose lines map onto `getByRole`
    - a layout sketch
    - findings as sentences, each naming the element
    - picture paths, which are there for when the text is not enough
-4. **The world is closed.** Every request that leaves the app is replied to, blocked by name, allowed by name, or stopped and reported. Routing judges each request the page makes. Beneath it, the browser sends everything but the app and the allowed hosts to a proxy that refuses it, so the redirect hops, IP addresses and WebRTC traffic that routing never sees are stopped too. This holds against deployments, and `ra doctor` tries it in your browser.
-5. **One browser, launched one way, with a receipt.** ra runs the Chromium that your project's pinned Playwright provisioned. It refuses an installed, auto-updating Google Chrome. It launches with one merged `--disable-features` switch and audio muted, reads the running browser's command line back over CDP to prove it, and prints the result as a receipt.
-6. **Nothing runs inside your app.** There is no SDK, bridge, test build or port to implement. If your app runs, ra can look at it.
+4. **The world is closed.** Every request that leaves the app is replied to, blocked by name, allowed by name, or stopped and reported. Routing judges each request the page makes. Beneath it, the browser sends everything but the app and the allowed hosts to a proxy that refuses it, so the redirect hops, IP addresses, and WebRTC traffic that routing never sees are stopped too. This holds against deployments, and `ra doctor` tries it in your browser.
+5. **ra launches its browser one way and prints a receipt.** ra runs the Chromium that your project's pinned Playwright provisioned. It refuses an installed, auto-updating Google Chrome. It launches with one merged `--disable-features` switch and audio muted, reads the running browser's command line back over CDP to prove it, and prints the result as a receipt.
+6. **Nothing runs inside your app.** There is no SDK, bridge, test build, or port to implement. If your app runs, ra can look at it.
 7. **Pixel baselines are ephemeral.** `ra snap` and `ra diff` keep their files in `.ra/`, which ignores itself in git. Nothing ra writes is meant to be committed.
 
-## Start
+## Setting up
 
-ra needs Node 22.18 or later and a Playwright in your project: `playwright-core`, `playwright` or `@playwright/test`. Install ra from its GitHub release:
+ra needs Node 22.18 or later and a Playwright in your project: `playwright-core`, `playwright`, or `@playwright/test`. With Bun, install it like this:
 
 ```sh
 bun add -d https://github.com/hraness/ra/releases/download/v0.1.5/hraness-ra-0.1.5.tgz playwright-core
@@ -74,10 +177,9 @@ bunx --no-install playwright-core install chromium
 
 To upgrade, give the new release's address the same way. npm replaces the old one: `npm install -D <new address>`. Bun stops with `DependencyLoop` while its lockfile names the old address, so remove ra and add it again (`bun remove @hraness/ra`, then `bun add -d <new address>`), or change the address in `package.json` and run `bun install`.
 
-You can look at any running app straight away, without a config:
+`ra look` also takes the address of a deployment:
 
 ```sh
-npx ra look http://127.0.0.1:3000/ --at phone
 npx ra look https://example.com/pricing --at phone.dark
 ```
 
@@ -126,7 +228,7 @@ Node strips the types from `ra.config.ts`, so relative imports in it need their 
 
 | Command | What it does |
 | --- | --- |
-| `ra look <state \| /path \| address>` | Looks at one state through its first view, or the views given with `--at`. Prints the outline, the layout, the findings and where the pictures are. `--in "<selector>"` narrows it to part of the page. `--then "<code>"` runs Playwright code first, with `page` in scope, and prints what it returns; `@file.js` reads that code from a file. `--full` prints the whole outline. |
+| `ra look <state \| /path \| address>` | Looks at one state through its first view, or the views given with `--at`. Prints the outline, the layout, the findings, and where the pictures are. `--in "<selector>"` narrows it to part of the page. `--then "<code>"` runs Playwright code first, with `page` in scope, and prints what it returns; `@file.js` reads that code from a file. `--full` prints the whole outline. |
 | `ra check [state…]` | Looks at every state through every view. Each finding is listed once, with the views it shows at. Exits 1 when anything is wrong. |
 | `ra snap [state…]` | Keeps how the states look now. |
 | `ra diff [state…]` | Says what changed since the snapshot, in words, and writes a copy of each changed picture with the changes framed. |
@@ -149,9 +251,9 @@ With `command`, the app runs in its own process group under a small keeper proce
 
 **`views`** lists what to look through:
 
-- The built-in views are `desktop` (1440×900), `tablet` (820×1180, touch), `phone` (390×844, touch) and `narrow` (320×640, touch).
+- The built-in views are `desktop` (1440×900), `tablet` (820×1180, touch), `phone` (390×844, touch), and `narrow` (320×640, touch).
 - A size such as `1024x768` also works.
-- Any of these can be followed by `.dark`, `.light`, `.touch` or `.motion` (which leaves animations running).
+- Any of these can be followed by `.dark`, `.light`, `.touch`, or `.motion` (which leaves animations running).
 - Custom views are `{ name, width, height, touch?, scale? }`.
 - The default is `["desktop", "phone"]`.
 
@@ -176,7 +278,7 @@ The browser follows a redirect by itself, so routing sees only the first request
 
 - `url`, plus a one-line `note`.
 - `world`, laid over the project's world.
-- `storage`, `session` and `cookies`: the starting localStorage, sessionStorage and cookies.
+- `storage`, `session`, and `cookies`: the starting localStorage, sessionStorage, and cookies.
 - `clock`: the time the page believes it is.
 - `ready`: a selector that must be visible before the state counts as reached.
 - `steps(page, reached)`: actions that reach the state after the page loads.
@@ -195,7 +297,7 @@ Against a deployment, the deployment answers for itself: no reply rule stands in
 
 **`accept`** lists findings you have decided to live with: `{ finding: "contrast", match: "hero", why: "The hero text sits on a photo we test by hand." }`. A `why` is required, and it is printed wherever the finding appears. When every state is checked, `ra check` names the accept entries that matched nothing, so stale ones get removed.
 
-Other settings: `tapTarget` (default 24), `timeout` (default 30000), `settle` (default 5000), `locale` (default `en-US`) and `timezone` (default `UTC`). `timeout` is how long ra waits for a page to load and for its `ready` mark, and how long a state's `steps`, its `expect` and ra's own checks may take. A part that runs longer is reported, and the run goes on with the next look. A state's `steps` and the `--then` code are timed as a whole, so a long flow may need a larger `timeout`. It takes milliseconds above 0 and up to 2147483647.
+Other settings: `tapTarget` (default 24), `timeout` (default 30000), `settle` (default 5000), `locale` (default `en-US`), and `timezone` (default `UTC`). `timeout` is how long ra waits for a page to load and for its `ready` mark, and how long a state's `steps`, its `expect`, and ra's own checks may take. A part that runs longer is reported, and the run goes on with the next look. A state's `steps` and the `--then` code are timed as a whole, so a long flow may need a larger `timeout`. It takes milliseconds above 0 and up to 2147483647.
 
 ## What it finds
 
@@ -224,7 +326,7 @@ Each finding is a sentence that names the element and says why it matters. [docs
   - `busy`: the page never went quiet.
   - `expect` and `steps`: your own checks or steps failed.
 
-ra exists to stay quiet on pages that are fine, so a false alarm is a bug in ra. The fixture page [`test/fixtures/site/tricky.html`](test/fixtures/site/tricky.html) collects deliberate ellipses, line clamps, scrolling strips, off-screen drawers and screen-reader-only text. ra must report nothing on it.
+ra exists to stay quiet on pages that are fine, so a false alarm is a bug in ra. The fixture page [`test/fixtures/site/tricky.html`](test/fixtures/site/tricky.html) collects deliberate ellipses, line clamps, scrolling strips, off-screen drawers, and screen-reader-only text. ra must report nothing on it.
 
 ## In CI
 
@@ -236,16 +338,42 @@ Run `ra check`. It needs no stored baselines, so it only fails when something is
 - run: bunx --no-install ra check
 ```
 
+A failing check prints each finding once, tagged with the views it shows at when that is not every view, and ends with a receipt for the browser it ran. This is ra's own fixture site, trimmed:
+
+```
+$ ra check
+ra check — 23 states, 33 looks in 10.4s — http://127.0.0.1:58744
+
+✗ noscript  /noscript
+  contrast  "This line shows only when scripts are o…" has 1.9:1 contrast (#b9bdc7 on #ffffff); text this size needs 4.5:1.
+            at p.faint "This line shows only when scripts are o…"
+✗ broken  /broken
+  cut-off       "Subscribe to updates" is cut off on the right by its own box (84px hidden).
+                at button.button.cut "Subscribe to updates"
+  covered       button "Pay now" is covered by span.veil; a click or tap on it would land on that instead.
+                at button.button "Pay now"
+  outside       The page asked api.example.com for data (GET https://api.example.com/v1/me); nothing in its world answers. Give api.example.com a reply, or list it under allow or block.
+  page-scroll   The page scrolls sideways by 531px. Sticking out: div.too-wide "This box is 900 pixels wide whatever th…" (900px wide, ends 530px past the edge). [phone, phone.dark]
+  …
+✗ pinned  /pinned
+  covered  button "Add to cart" is covered by p "Free shipping over fifty"; a click or tap on it would land on that instead.
+  covered  p.cookies "This site keeps a cookie." covers 2 controls: button "Help", button "Chat".
+           at button.help "Help"
+…
+✗ leave  /leave
+  load     The page did not load, because a redirect from /leave sent it outside its world, to https://example.com/ (net::ERR_PROXY_CONNECTION_FAILED at http://127.0.0.1:58744/leave). The outside finding says more.
+  outside  A redirect from /leave tried to take the page to https://example.com/, which is not in its world, and was stopped. The browser follows redirects by itself, so a reply for example.com cannot answer it. Give /leave a reply that does not redirect there, or list example.com under block to stop it quietly, or under allow to let it through.
+…
+
+✓ home
+✓ tricky
+…
+
+57 findings in 13 of 23 states, with 3 notes. Look closer: ra look noscript --at desktop
+browser: Chromium 158.0.8127.18, playwright-core 1.65.0, ~/Library/Caches/ms-playwright/chromium-1254/…/Google Chrome for Testing
+```
+
 `ra check --json` prints every look as data, for tools that want more than the exit code.
-
-## For agents
-
-[`skills/ra/SKILL.md`](skills/ra/SKILL.md) is a skill that teaches an agent when to reach for ra and how to read what it prints. Install it with the package, or copy it into `.claude/skills/ra/`. The loop:
-
-1. Run `ra look <state> --at phone`, read the findings and the outline, and fix what is wrong.
-2. Run `ra look` again to confirm. Run `ra check` before handing off.
-3. For a change with a wide reach, run `ra snap` first and `ra diff` afterwards.
-4. Open a picture only when the words leave a doubt, such as how a gradient looks. Every look writes `.ra/look/<state>.<view>.png` (the first screen) and `.full.png` (the whole page).
 
 ## The browser
 
@@ -262,7 +390,7 @@ It then launches with:
 - `--mute-audio`
 - the closed world: a proxy that refuses everything, bypassed only for the app on its own port and for the allowed hosts; a host-resolver rule that lets no other name resolve; and WebRTC held to proxied connections, which that proxy refuses
 
-After launch, ra reads `Browser.getBrowserCommandLine` and refuses to continue unless the running browser has every one of these. Every run ends with a receipt line. `ra doctor` shows the same receipt and tries the closed world: a throwaway app must answer, while another port on this machine, an IP address, an outside host and a WebRTC connection must each be stopped.
+After launch, ra reads `Browser.getBrowserCommandLine` and refuses to continue unless the running browser has every one of these. Every run ends with a receipt line. `ra doctor` shows the same receipt and tries the closed world: a throwaway app must answer, while another port on this machine, an IP address, an outside host, and a WebRTC connection must each be stopped.
 
 ra runs on macOS and Linux and is tested with playwright-core 1.58 through 1.65.
 
@@ -278,14 +406,38 @@ ra runs on macOS and Linux and is tested with playwright-core 1.58 through 1.65.
   const owned = await openBrowser({ args: hosts === null ? [] : closedWorldSwitches(origin, hosts) });
   ```
 
-  Like Playwright, `openBrowser` closes the browser on SIGINT, SIGTERM and SIGHUP, and exits on Ctrl-C. Pass `handleSignals: false` when your script handles those signals itself.
+  Like Playwright, `openBrowser` closes the browser on SIGINT, SIGTERM, and SIGHUP, and exits on Ctrl-C. Pass `handleSignals: false` when your script handles those signals itself.
 - `ruleProblem`: what is wrong with a rule, in words, or `null`
 - `observe` and `inspectPage`: a look. When one browser serves several worlds, pass `observe` the same hosts as `reachable`, so that it knows which redirects the browser let through.
 - `compareLooks`: a diff
 
-## Where it came from
+## Verification
 
-ra replaces Direct, an earlier framework that had the right core ideas, the wrong weight and the wrong output. [docs/from-direct.md](docs/from-direct.md) says what was kept, what was dropped and why. [docs/recipes.md](docs/recipes.md) shows how ra fits each kind of app.
+Each release on GitHub is immutable, with the packed tarball as its one asset, and GitHub records the asset's SHA-256. To check that a tarball came from a release:
+
+```sh
+gh release verify-asset v0.1.5 hraness-ra-0.1.5.tgz -R hraness/ra
+```
+
+ra's browser tests run the CLI against [a fixture site](test/fixtures/site). Every kind of finding has a planted case in `broken.html`, and `tricky.html`, full of patterns that only look wrong, must stay clean. In a clone, run `bun install` and then `bun run check`, which runs the type check, the unit tests, and the build. The browser tests, `bun run test:browser`, need the Chromium that the pinned playwright-core installs: `node node_modules/playwright-core/cli.js install chromium`.
+
+To report a false alarm or a problem ra missed, [open an issue](https://github.com/hraness/ra/issues) with the page, or a small copy of it, and what ra printed.
+
+## Neighbours
+
+This list dates from November 2026, and each of these tools moves fast.
+
+- **Agent browsers**, such as Playwright MCP, Chrome DevTools MCP, and agent-browser, give the agent a page to drive, its accessibility tree, and pictures. Whether the layout is right is left to the model. ra measures the layout and hands the agent a verdict.
+- **Visual regression tools**, such as Chromatic, Percy, Argos, Meticulous, and BackstopJS, compare new pictures with earlier ones. They show every change, wanted or not, and someone decides which changes are bugs. A bug that was there from the start is part of the baseline. `ra check` needs no baseline, and `ra snap` and `ra diff` say in words what moved during one change.
+- **Accessibility engines**, such as axe-core and Lighthouse, check many more rules than ra has. Run one alongside ra, which adds what only the painted page shows: contrast over images and gradients, text that is clipped or spills, and controls that something else covers.
+- **Rendered-UI linters** are the closest. [renderlint](https://github.com/ngocanhnckh/renderlint) shares ra's premise and measures contrast the same way, with more rules, a sweep across widths, stress passes with longer text, and a Stop hook for Claude Code. [Impeccable](https://github.com/pbakaus/impeccable)'s `detect` looks for design “slop” with deterministic rules. ra puts its weight on the world around the page: each state brings its own replies, storage, cookies, and clock, a request that nothing answers is reported, and the same closed world holds when ra looks at a deployment.
+
+## Documentation
+
+- [Recipes](docs/recipes.md): choosing states and views, and setting ra up for each kind of app, from a static site to a desktop app's web surfaces.
+- [Findings](docs/findings.md): how each kind of finding is decided, what it deliberately ignores, and how to accept one.
+- [The skill](skills/ra/SKILL.md): when a coding agent should look, and how it reads what ra prints.
+- [From Direct to ra](docs/from-direct.md): ra replaces [Direct](https://github.com/hraness/direct), an earlier Hraness framework that also gave each state of an app its own URL in a fixture world. This page says what ra kept, what it dropped, and why.
 
 ## Licence
 
