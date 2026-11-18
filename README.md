@@ -15,7 +15,7 @@ A coding agent that checks a UI change with a screenshot leaves a model to judge
 
 That is `ra look broken --at phone` on [a fixture page](test/fixtures/site/broken.html) full of planted problems. Its twin, [`tricky.html`](test/fixtures/site/tricky.html), is full of things that only look wrong, and ra must print nothing for it.
 
-The page runs inside a fake world: the API replies you write, the hosts you block, and stand-ins for the services your server calls. A request that nothing in the world answers is stopped and reported. You name each state once, such as an empty inbox, a failed payment, or a name 80 characters long, and ra looks at it on desktop, on a phone, and in dark mode.
+The page runs inside a fake world: the API replies you write, the hosts you block, and stand-ins for the services your server calls. A request that nothing in the world answers is stopped and reported. You name each state once, such as an empty inbox, a failed payment, or a name 80 characters long, and ra looks at it through every view you list, such as desktop, a phone, and dark mode.
 
 ## Start
 
@@ -104,7 +104,7 @@ An agent that wants to know whether its UI change worked has three easy options,
 | --- | --- | --- | --- | --- |
 | Who decides what is wrong | The model, by eye | Your assertions | The model, from text | Measurements |
 | Contrast, overlap, clipping, covering | Often misjudged | Only what you assert | Not in the tree | Measured and reported |
-| Live services in the loop | Unless you mock them | Unless you mock them | Unless you mock them | Never; a request nothing answers is reported |
+| Live services in the loop | Unless you mock them | Unless you mock them | Unless you mock them | Only the hosts you allow by name; any other request is stopped and reported |
 | Empty, failing, and overflowing states | Reached by hand | Mocks you write | Reached by hand | Named once in a config |
 
 ## In use
