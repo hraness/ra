@@ -451,6 +451,8 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     page.setDefaultTimeout(actionWait(project.timeout));
 
     const pending = new Set<Request>();
+    /** When each request started, so that one started late gets as long as the first ones had. */
+    const opened = new WeakMap<Request, number>();
     let lastActivity = performance.now();
     const consoleErrors = new Map<string, number>();
     let document: Request | null = null;
@@ -510,6 +512,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     page.on("request", (request) => {
       observation.requests.total++;
       lastActivity = performance.now();
+      opened.set(request, lastActivity);
       if (request.isNavigationRequest() && request.frame() === page.mainFrame()) navigation = request;
       if (!BACKGROUND.has(request.resourceType())) pending.add(request);
       if (request.resourceType() === "other" && request.method() === "GET") {
@@ -569,7 +572,13 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
         for (;;) {
           if (pending.size === 0 && performance.now() - lastActivity >= 200) break;
           if (performance.now() > deadline) {
-            stillLoading = [...pending].slice(0, 3).map((request) => `${request.method()} ${brief(request.url(), origin)}`);
+            // A request the page started late, such as a picture a live animation has just brought into view,
+            // gets as long as the first ones had. Only one still open after that long is still loading.
+            const open = [...pending];
+            const young = (request: Request) => pending.has(request) && performance.now() - (opened.get(request) ?? 0) < project.settle;
+            while (open.some(young)) await new Promise((done) => setTimeout(done, 40));
+            const left = open.filter((request) => pending.has(request));
+            if (left.length > 0) stillLoading = left.slice(0, 3).map((request) => `${request.method()} ${brief(request.url(), origin)}`);
             break;
           }
           await new Promise((done) => setTimeout(done, 40));

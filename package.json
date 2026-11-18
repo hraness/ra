@@ -1,6 +1,6 @@
 {
   "name": "@hraness/ra",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Look at an app's interface the way a person would — a real browser, a fake world — and say in words what is wrong. Made for coding agents.",
   "license": "MIT",
   "type": "module",

@@ -123,7 +123,7 @@ The page did not load: a network error, a timeout, or a navigation the closed wo
 
 ### `busy`
 
-Requests were still open when the settle time ran out (5 seconds by default). Usually a long poll, a stream or a request that never answers. Give it a reply in the world, or block it. The browser's own fetch of the tab's icon is not waited for, since nothing on the page waits for it either; what it answers is still judged. A new document cancels what the old one still had open, so a reload in a state's steps leaves nothing loading behind it.
+Requests were still open when the settle time ran out (5 seconds by default). Usually a long poll, a stream or a request that never answers. A request the page started late, such as a picture that a live animation brought into view, gets as long as the first ones had, so only a request open for the whole settle time is reported. Give it a reply in the world, or block it. The browser's own fetch of the tab's icon is not waited for, since nothing on the page waits for it either; what it answers is still judged. A new document cancels what the old one still had open, so a reload in a state's steps leaves nothing loading behind it.
 
 Or the page stopped answering: ra's own checks on it, its pictures of it, or its wait for the page to settle, did not finish within the project's `timeout` (30 seconds by default) plus the few seconds those waits take by design, usually because a script keeps the page busy. The message says what ra was doing. What the checks found before then is still reported; the look stops there, and the run goes on with the next one.
 
