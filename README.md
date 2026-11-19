@@ -123,23 +123,9 @@ This list dates from November 2026, and each of these tools moves fast.
 - **Accessibility engines**, such as axe-core and Lighthouse, check many more rules than ra has. Run one alongside ra, which adds what only the painted page shows: contrast over images and gradients, text that is clipped or spills, and controls that something else covers.
 - **Rendered-UI linters** are the closest. [renderlint](https://github.com/ngocanhnckh/renderlint) shares ra's premise and measures contrast the same way, with more rules, a sweep across widths, stress passes with longer text, and a Stop hook for Claude Code. [Impeccable](https://github.com/pbakaus/impeccable)'s `detect` looks for design “slop” with deterministic rules. ra puts its weight on the world around the page: each state brings its own replies, storage, cookies, and clock, a request that nothing answers is reported, and the same closed world holds when ra looks at a deployment.
 
-## In use
-
-So far ra runs only on Hraness's own sites: nine of them, including docs and marketing sites, a payment form, a mockup editor, and a phone-first web app. One full run of all nine is about 200 states and 700 looks, at about 1–3 seconds a look in CI.
-
-In its first two days on those sites, ra's findings led to 22 fixes. Of those, 19 came from its built-in checks: seven for contrast; six for text cut off, text spilling, or sideways scroll; three for small tap targets; and one each for a failed request, a console error, and a covered control. Some of them:
-
-- **Sideways scroll that a screenshot crops away.** An email field kept its default width. With the button beside it, a hero scrolled sideways at 320–374px, and up to 390px in Spanish.
-- **A link cut off on every page.** At 320px, a docs site's header cut its Install link off by 40px. At 390px the page was 410px wide.
-- **One colour, 106 findings.** A faint text colour, used for rows, headings, and a caption, measured 3.2–3.4:1 in light mode and 4.0–4.2:1 in dark. One token change, to 5.1:1 and 6.4:1, fixed every place it appeared.
-- **Only in production.** A 404 page's links went through the app's router. Production answered the router's prefetch with 500 and 404, and the local server did not. `ra check --url` against the deployment, still in a closed world, caught it.
-- **Hidden but reachable.** ra reported controls under a list panel as covered. Tab and screen readers could still reach them, until the part underneath was made `inert`.
-
-The same sites deleted at least 1,772 lines of hand-written browser scripts in favour of ra states. Three of those scripts had never run in CI. The sites also turned up 23 patterns that ra misjudged in its first two days, and each is now fixed and reproduced in ra's tests.
-
 ## When to use it
 
-A browser check costs more than a unit test: a look takes about 1–3 seconds in CI, and browser tests flake more than most ([how it compares](#how-it-compares)). So ra is worth running when the answer depends on what a browser paints.
+A browser check costs more than a unit test: each look loads the page in a real browser and waits for it to settle, and browser tests flake more than most ([how it compares](#how-it-compares)). So ra is worth running when the answer depends on what a browser paints.
 
 **Use ra when:**
 
@@ -165,7 +151,6 @@ A browser check costs more than a unit test: a look takes about 1–3 seconds in
 - Contrast is read from painted pixels, so text close to a threshold can pass under one system's font rendering and fall short under another's.
 - Pictures and contrast cover at most the first 12,000px of a page. ra says so when a page is taller.
 - When a page scrolls inside an element rather than as a whole, its pictures show that element's first screen, and ra says so.
-- ra is new. So far it runs only on Hraness's own sites.
 
 ## For coding agents
 
@@ -450,14 +435,14 @@ ra runs on macOS and Linux with playwright-core 1.58 or later. Its browser tests
 
 ## Design decisions
 
-[How it compares](#how-it-compares) argues the three largest choices: measure and do not ask a model, close the world, and put measured findings beside the outline. Each of the others has a number behind it too.
+[How it compares](#how-it-compares) argues the three largest choices: measure instead of asking a model, close the world, and put measured findings beside the outline. These are the others, each with the standard, study, or fixture it rests on.
 
-- **Contrast comes from painted pixels, not from CSS.** WCAG asks for 4.5:1, or 3:1 for large text ([SC 1.4.3](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)). Of the seven contrast fixes [in use](#in-use), three were text over something CSS names no colour for: a blurred header at 3.1:1, a picture's drawn shadow at 3.5:1, and light glows at 4.1–4.3:1. ra reads the background across each whole line, reports the line only when three quarters of that background falls short, and prints the median ratio.
-- **Small tap targets are reported only when crowded.** WCAG's minimum is 24 by 24 CSS pixels, and its exceptions include a target with enough room around it and a link in a sentence ([SC 2.5.8](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)). ra leaves the same two alone. The three fixes in use were links 18px, 19px, and 21px tall, each with another control close by.
-- **A 320px view is built in.** WCAG's reflow criterion asks that a page work at 320 CSS pixels wide without scrolling sideways ([SC 1.4.10](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html)). In use, a hero in English scrolled sideways at 320–374px. The 390px `phone` view does not show that, and the 320px `narrow` view does.
+- **Contrast comes from painted pixels, not from CSS.** WCAG asks for 4.5:1, or 3:1 for large text ([SC 1.4.3](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)). Text often sits on something CSS names no single colour for, such as a gradient, a photo, a blur, or a shadow. [`tricky.html`](test/fixtures/site/tricky.html) has white text on a dark gradient, which reads well, and ra must stay quiet about it. ra reads the background across each whole line, reports the line only when three quarters of that background falls short, and prints the median ratio.
+- **Small tap targets are reported only when crowded.** WCAG's minimum is 24 by 24 CSS pixels, and its exceptions include a target with enough room around it and a link in a sentence ([SC 2.5.8](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)). ra leaves the same two alone, and `tricky.html` holds both. `broken.html` has two 18 by 18 buttons side by side, and ra reports them.
+- **A 320px view is built in.** WCAG's reflow criterion asks that a page work at 320 CSS pixels wide without scrolling sideways ([SC 1.4.10](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html)). A page can fit the 390px `phone` view and still scroll sideways at 320px, which the `narrow` view shows.
 - **ra does the waiting, and every wait has a limit.** In a study of 235 flaky UI tests from 62 web and Android projects, 45.1% came from a test that did not wait properly for something asynchronous ([Romano et al., ICSE 2021](https://arxiv.org/abs/2103.02669)). A state has no sleeps to write: ra waits for 200 ms of network quiet and then 120 ms of stillness. By default it reports what is still open after 5 seconds as `busy`, and each part of a look stops at 30 seconds.
-- **Nothing runs inside your app.** ra's predecessor asked an app to route its outside calls through a port, write adapters, and ship a second build. It carried 18,445 lines of source and 15,786 of tests, and its one consuming app still wrote roughly a thousand lines of its own checks ([From Direct to ra](docs/from-direct.md)). ra is about 6,000 lines, and a first look needs no config.
-- **No pixel baselines in CI.** [Playwright's guide](https://playwright.dev/docs/test-snapshots) warns that rendering varies with the host's operating system, version, settings, hardware, power source, and headless mode. ra's own use saw the same: two texts that passed on a Mac measured 4.2:1 and 4.3:1 under Linux's font rendering. `ra check` compares a page with rules, not with an earlier picture, so there is no baseline to store or approve. `ra snap` and `ra diff` keep their files in `.ra/`, which ignores itself in git, for the length of one change.
+- **Nothing runs inside your app.** ra's predecessor asked an app to route its outside calls through a port, write adapters, and ship a second build. It carried 18,445 lines of source and 15,786 of tests ([From Direct to ra](docs/from-direct.md)). ra is about 6,000 lines, and a first look needs no config.
+- **No pixel baselines in CI.** [Playwright's guide](https://playwright.dev/docs/test-snapshots) warns that rendering varies with the host's operating system, version, settings, hardware, power source, and headless mode. `ra check` compares a page with rules, not with an earlier picture, so there is no baseline to store or approve. `ra snap` and `ra diff` keep their files in `.ra/`, which ignores itself in git, for the length of one change.
 - **One browser, launched one way.** ra runs the Chromium that your project's pinned Playwright installed and refuses an installed, auto-updating Chrome, so the browser changes only when your pin does. Every run prints the browser and version it used.
 
 ## Verification
