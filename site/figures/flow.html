@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How ra works</title>
+<!--
+  The README's first picture, how ra works. This file is its one source:
+  - `bun run figures` renders .github/media/ra-flow.png and ra-flow-dark.png from it, at the README's width and 2x;
+  - the site lifts the markup between the figure marks and styles it in site/style.css, so that it reflows on a phone.
+  The styles below are the README picture's only.
+-->
+<style>
+  /* The README hero's palette. --stop is dark enough for small text on paper. */
+  :root { --paper: #f7f6f3; --ink: #17191d; --muted: #5d6470; --line: #d9dbe0; --kind: #3a5bc7; --stop: #b3301c; --panel: #ffffff; }
+  .dark { --paper: #0f1115; --ink: #e8eaee; --muted: #9aa1ad; --line: #2a2e36; --kind: #8fa8ff; --stop: #ff7a5f; --panel: #161920; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { width: 830px; background: var(--paper); color: var(--ink); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  p { margin: 0; }
+
+  /* Drawn at the README's own width, captured at 2x. */
+  .flow { width: 830px; padding: 24px 24px 22px; }
+  .flow-row { display: grid; grid-template-columns: 1fr 86px 1fr 86px 1fr; align-items: stretch; }
+  .flow-node { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 15px 16px 16px; }
+  .flow-kicker { font-size: 10.5px; line-height: 1; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .flow-title { margin-top: 8px; font-size: 19px; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; }
+  .flow-line { margin-top: 6px; font-size: 13px; line-height: 1.4; color: var(--muted); }
+  .flow-stop { color: var(--stop); font-weight: 600; }
+
+  /* Arrows sit in the gaps, at the height of the boxes' middle. */
+  .flow-link { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px; color: var(--muted); }
+  .flow-label { font-size: 11.5px; line-height: 1.2; text-align: center; }
+  .flow-link svg, .flow-down svg { display: block; }
+
+  /* What comes out, under the look. */
+  .flow-down { display: grid; grid-template-columns: 1fr 86px 1fr 86px 1fr; color: var(--muted); }
+  .flow-down svg { grid-column: 5; justify-self: center; }
+  .flow-out { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 15px; }
+  .flow-says { margin-top: 10px; font: 12px/1.65 ui-monospace, "SF Mono", Menlo, monospace; }
+  .flow-says p { white-space: pre; }
+  .flow-kind { color: var(--kind); font-weight: 600; }
+</style>
+</head>
+<body>
+<!-- figure -->
+<div class="flow">
+  <div class="flow-row">
+    <div class="flow-node">
+      <p class="flow-kicker">Mocking</p>
+      <p class="flow-title">The world</p>
+      <p class="flow-line">Replies you write.<br /><span class="flow-stop">Anything else is stopped.</span></p>
+    </div>
+    <div class="flow-link" aria-hidden="true">
+      <span class="flow-label">requests</span>
+      <svg class="flow-two" width="62" height="22" viewBox="0 0 62 22"><g stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M60 6H4M9 1 4 6l5 5"/><path d="M2 16h56M53 11l5 5-5 5"/></g></svg>
+      <span class="flow-label">replies</span>
+    </div>
+    <div class="flow-node">
+      <p class="flow-kicker">Real browser</p>
+      <p class="flow-title">Your app</p>
+      <p class="flow-line">Unchanged, at each screen size you list.</p>
+    </div>
+    <div class="flow-link" aria-hidden="true">
+      <span class="flow-label">what it drew</span>
+      <svg class="flow-one" width="62" height="12" viewBox="0 0 62 12"><g stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h56M53 1l5 5-5 5"/></g></svg>
+      <span class="flow-label">&nbsp;</span>
+    </div>
+    <div class="flow-node">
+      <p class="flow-kicker">Perception</p>
+      <p class="flow-title">The look</p>
+      <p class="flow-line">Measures the page, with no AI model.</p>
+    </div>
+  </div>
+  <div class="flow-down" aria-hidden="true">
+    <svg width="12" height="30" viewBox="0 0 12 30"><g stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v24M1 21l5 5 5-5"/></g></svg>
+  </div>
+  <div class="flow-out">
+    <p class="flow-kicker">What your agent reads</p>
+    <div class="flow-says">
+      <p><span class="flow-kind">cut-off</span>  "Subscribe to updates" is cut off on the right by its own box (84px hidden).</p>
+      <p><span class="flow-kind">covered</span>  button "Pay now" is covered by span.veil; a click or tap on it would land on that instead.</p>
+    </div>
+  </div>
+</div>
+<!-- /figure -->
+<script>
+  if (new URLSearchParams(location.search).get("theme") === "dark") document.documentElement.classList.add("dark");
+</script>
+</body>
+</html>

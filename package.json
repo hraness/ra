@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/hraness/ra.git"
   },
-  "homepage": "https://github.com/hraness/ra#readme",
+  "homepage": "https://hraness.github.io/ra/",
   "bugs": "https://github.com/hraness/ra/issues",
   "keywords": ["ui-testing", "coding-agents", "playwright", "chromium", "accessibility", "layout", "contrast", "claude-code", "agent-skills", "cli"],
   "bin": {
@@ -32,7 +32,10 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test test/unit.test.ts",
     "test:browser": "node --test --test-concurrency=1 test/browser.test.ts",
-    "check": "bun run typecheck && bun run test && bun run build && node dist/cli.js --version"
+    "check": "bun run typecheck && bun run test && bun run build && node dist/cli.js --version && bun run test:site",
+    "site": "rm -rf site/dist && bun site/build.ts",
+    "test:site": "node --test test/site.test.ts",
+    "figures": "node site/figures/render.ts"
   },
   "peerDependencies": {
     "playwright-core": ">=1.58"
