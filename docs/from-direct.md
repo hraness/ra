@@ -18,7 +18,7 @@ ra keeps all five.
 
 **Adoption was a project.** An app had to route its external calls through a port, write adapters for it and ship a second, development-only build. That design is good architecture in the abstract, but it is a lot to ask before the first useful look. Direct had one consuming app, and the retired repository gives no other reason for stopping.
 
-**It stopped short of the answer.** Direct served the state and a readiness probe. The verifier was left to the consumer: what to look at, what counts as wrong, and how to say it. Its one consumer still wrote roughly a thousand lines of its own verification on top. Every product that adopted it would have written its own again.
+**It stopped short of the answer.** Direct served the state and a readiness probe. The verifier was left to the consumer: what to look at, what counts as wrong, and how to say it. Its one consumer still wrote its own verification on top. Every product that adopted it would have written its own again.
 
 **It was general in the wrong places.** It carried 18,445 lines of source and 15,786 lines of tests, an Effect runtime, property-based exploration and a versioned in-page API. All of that served flexibility that one consumer never used.
 
@@ -36,7 +36,7 @@ ra keeps all five.
 | A fetch firewall inside the page | Context-level routing. Beneath it, a proxy that refuses whatever routing never sees, such as redirect hops, IP addresses and WebRTC, and `ra doctor` to prove it holds. It also holds against deployments. |
 | Any browser tool | One provisioned Chromium, launched one way, verified over CDP, with a receipt. |
 
-ra is about 5,000 lines.
+ra is about 6,000 lines.
 
 ## What ra gives up
 
