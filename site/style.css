@@ -1,0 +1,1096 @@
+/*
+ * ra's site, in the instrument language of dawnav.com: one paper, one ink, one hairline where a line is needed,
+ * Funnel Display for headings, the system sans for text and the system mono for code. Colours come from the tokens
+ * below and nothing else names one. No shadows, gradients or motion: state changes are instant.
+ */
+
+@font-face {
+  font-family: "Funnel Display";
+  src: url("fonts/funnel-display/FunnelDisplay.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+  --ground: #f4f4f1;
+  --sunk: #eaeae6;
+  --ink: #131313;
+  --ink2: #5a5a56;
+  /* Marks only, never text. */
+  --ink3: #9c9c97;
+  --rule: #d6d6d1;
+  /* A failure in printed output, and nothing else. */
+  --signal: #b8290a;
+  --keyword: #2f5597;
+  --string: #2e6b45;
+  --number: #7d4a8c;
+  --hair: 1px;
+  --measure: 80rem;
+  --gutter: clamp(1rem, 4vw, 2.5rem);
+  --header: 3rem;
+  --text: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --display: "Funnel Display", var(--text);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* A link to a heading lands below the header, not behind it. */
+  scroll-padding-top: calc(var(--header) + 1rem);
+}
+
+@media (min-resolution: 2dppx) {
+  :root {
+    --hair: 0.5px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0f0f0f;
+    --sunk: #1a1a1a;
+    --ink: #ececea;
+    --ink2: #9c9c98;
+    --ink3: #5e5e5c;
+    --rule: #2b2b2b;
+    --signal: #ff5a36;
+    --keyword: #8fb0e3;
+    --string: #9cc7a8;
+    --number: #c9a3d6;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 1rem / 1.625rem var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+img {
+  max-width: 100%;
+}
+
+.skip:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip:focus {
+  position: absolute;
+  z-index: 20;
+  top: 0.5rem;
+  left: var(--gutter);
+  padding: 0.5rem 0.75rem;
+  border-radius: 2px;
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 0.875rem;
+}
+
+/* ---- Labels and keys: the site's own names for things in small capitals, quiet at rest and full ink under a
+   pointer. Words from the copy are never set in capitals, since ra is always written in small letters: they take
+   `.title`, and a file's name takes `.file`. */
+
+.label,
+.key-label {
+  color: var(--ink2);
+  font: 500 0.625rem / 1rem var(--text);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.key-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.key-label[hidden] {
+  display: none;
+}
+
+.key-label:hover,
+.key-label[aria-current] {
+  color: var(--ink);
+}
+
+@media (pointer: coarse) {
+  .key-label {
+    min-height: 2.75rem;
+  }
+}
+
+.title {
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+}
+
+.file {
+  color: var(--ink2);
+  font: 400 0.75rem / 1rem var(--mono);
+}
+
+/* The page's one filled key. */
+.key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0 1.25rem;
+  border-radius: 2px;
+  background: var(--ink);
+  color: var(--ground);
+  font: 500 0.6875rem / 1rem var(--text);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.key:active {
+  background: var(--ink2);
+}
+
+/* ---- The header, which stays at the top on the paper itself. Once the page moves under it, a hairline marks its
+   lower edge. */
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: var(--hair) solid transparent;
+  background: var(--ground);
+}
+
+@supports (animation-timeline: scroll()) {
+  .top {
+    animation: top-rule steps(1, end) both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 1px;
+  }
+
+  @keyframes top-rule {
+    to {
+      border-bottom-color: var(--rule);
+    }
+  }
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 1rem;
+  width: min(100%, var(--measure));
+  min-height: var(--header);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  color: var(--ink);
+  font: 600 1.25rem / 1.25rem var(--display);
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.links {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+/* ---- The footer: the site's pages at the left, the Hraness wordmark at the right, under one hairline. */
+
+.foot {
+  width: min(100%, var(--measure));
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+  color: var(--ink2);
+}
+
+.foot .bar {
+  gap: 0.25rem 1.5rem;
+  width: auto;
+  min-height: 0;
+  padding: 1rem 0 max(1.25rem, env(safe-area-inset-bottom));
+  border-top: var(--hair) solid var(--rule);
+}
+
+.foot nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.25rem;
+}
+
+.foot a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  color: inherit;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  text-decoration: none;
+}
+
+.foot a:hover {
+  color: var(--ink);
+}
+
+.foot .wordmark {
+  margin-inline-start: auto;
+  font-family: var(--display);
+  font-size: 0.875rem;
+  font-weight: 450;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ---- Copy: README and docs Markdown as it renders. */
+
+.prose {
+  overflow-wrap: break-word;
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.prose p,
+.prose ul,
+.prose ol,
+.prose details {
+  margin: 0 0 1rem;
+}
+
+.prose p {
+  text-wrap: pretty;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.25rem;
+}
+
+.prose li {
+  margin: 0.375rem 0;
+}
+
+.prose li > :is(ul, ol) {
+  margin: 0.375rem 0 0;
+}
+
+.prose li > p {
+  margin: 0.375rem 0;
+}
+
+.prose h2 {
+  margin: 3rem 0 0.75rem;
+  font: 600 1.25rem / 1.75rem var(--display);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.prose h3 {
+  margin: 2.25rem 0 0.5rem;
+  font: 600 1rem / 1.5rem var(--display);
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+}
+
+.prose h4 {
+  margin: 1.75rem 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose :not(pre) > code {
+  font-family: var(--mono);
+  font-size: 0.875em;
+}
+
+.prose code.word {
+  white-space: nowrap;
+}
+
+.prose a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--ink3);
+  text-underline-offset: 0.2em;
+}
+
+.prose a:hover {
+  text-decoration-color: currentColor;
+}
+
+.prose summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.prose details[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
+.prose .lead {
+  margin-bottom: 1.5rem;
+  color: var(--ink2);
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+/* A screenshot sits in the text column inside a hairline. */
+.shot {
+  max-width: 830px;
+  margin: 0 0 1.5rem;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: var(--hair) solid var(--rule);
+  border-radius: 2px;
+}
+
+/* The first picture, drawn from site/figures/flow.html: the world, your app and the look in a row with arrows between
+   them, and what the agent reads below. On a phone the parts stack and the arrows turn to point down the page. */
+.diagram {
+  max-width: 52rem;
+  margin: 0 0 1.5rem;
+}
+
+.diagram p {
+  margin: 0;
+}
+
+.flow-node,
+.flow-out {
+  padding: 0.875rem 1rem 1rem;
+  border-radius: 2px;
+  background: var(--sunk);
+}
+
+.flow-kicker {
+  color: var(--ink2);
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.diagram .flow-title {
+  margin-top: 0.25rem;
+  font: 600 1.125rem / 1.5rem var(--display);
+  letter-spacing: -0.01em;
+}
+
+.diagram .flow-line {
+  margin-top: 0.25rem;
+  color: var(--ink2);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.flow-stop {
+  color: var(--signal);
+  font-weight: 500;
+}
+
+.flow-link {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 0.75rem;
+  height: 4.5rem;
+  color: var(--ink2);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.flow-label {
+  flex: 1 1 0;
+}
+
+.flow-label:first-child {
+  text-align: left;
+}
+
+.flow-label:last-child {
+  text-align: right;
+}
+
+.flow-link svg {
+  flex: none;
+  transform: rotate(90deg);
+}
+
+/* A turned arrow keeps the box it had, so its sides are drawn in to the width it now shows. */
+.flow-two {
+  margin-inline: -20px;
+}
+
+.flow-one {
+  margin-inline: -25px;
+}
+
+.flow-down {
+  display: flex;
+  justify-content: center;
+  padding: 0.5rem 0;
+  color: var(--ink2);
+}
+
+.flow-says {
+  margin-top: 0.5rem;
+  font: 400 0.75rem / 1.25rem var(--mono);
+}
+
+/* A finding that wraps goes on under its sentence, past the kind and the two spaces after it. */
+.diagram .flow-says p {
+  padding-left: 9ch;
+  text-indent: -9ch;
+  white-space: pre-wrap;
+}
+
+.diagram .flow-says p + p {
+  margin-top: 0.25rem;
+}
+
+.flow-kind {
+  color: var(--keyword);
+  font-weight: 500;
+}
+
+@media (min-width: 48rem) {
+  .flow-row,
+  .flow-down {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 5.5rem minmax(0, 1fr) 5.5rem minmax(0, 1fr);
+  }
+
+  .flow-link {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.25rem;
+    height: auto;
+  }
+
+  .flow-label {
+    flex: none;
+  }
+
+  .flow-label:is(:first-child, :last-child) {
+    text-align: center;
+  }
+
+  .flow-link svg {
+    margin-inline: 0;
+    transform: none;
+  }
+
+  .flow-down svg {
+    grid-column: 5;
+    justify-self: center;
+  }
+}
+
+/* Tables: a hairline under the header and space between rows. */
+.table {
+  margin: 0 0 1.5rem;
+  overflow-x: auto;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.prose th {
+  padding: 0 1rem 0.5rem 0;
+  border-bottom: var(--hair) solid var(--rule);
+  font-weight: 600;
+  text-align: left;
+  vertical-align: bottom;
+}
+
+.prose td {
+  padding: 0.625rem 1rem 0.625rem 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose :is(th, td):last-child {
+  padding-right: 0;
+}
+
+.prose td code {
+  overflow-wrap: anywhere;
+}
+
+/* In a comparison, the other options are quiet and ra's own column is in ink. */
+.prose table:has(.ra) td:not(:first-child, .ra) {
+  color: var(--ink2);
+}
+
+.prose td.ra {
+  font-weight: 500;
+}
+
+/* On a phone, a table of three or more columns becomes one block per row, each cell under its column's name. */
+@media (max-width: 40rem) {
+  .prose table.stack,
+  .stack :is(tbody, tr, td) {
+    display: block;
+  }
+
+  .stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .stack tr + tr {
+    margin-top: 1.25rem;
+  }
+
+  .prose .stack td {
+    padding: 0.25rem 0;
+  }
+
+  .stack td:first-child {
+    font-weight: 600;
+  }
+
+  .stack td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--ink2);
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1rem;
+  }
+}
+
+/* Code: a sunk well with its name at the top left and a copy key at the top right. */
+.well {
+  margin: 0 0 1.5rem;
+  border-radius: 2px;
+  background: var(--sunk);
+}
+
+.well-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.25rem;
+  padding: 0.25rem 1rem 0;
+}
+
+.well pre {
+  margin: 0;
+  padding: 0.25rem 1rem 1rem;
+  overflow-x: auto;
+  font: 400 0.8125rem / 1.25rem var(--mono);
+  tab-size: 2;
+}
+
+.well code {
+  font: inherit;
+}
+
+/* Commands wrap rather than scroll, and a wrapped line goes on under the command, past the prompt. */
+.terminal pre {
+  padding-left: calc(1rem + 2ch);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.terminal .p {
+  margin-left: -2ch;
+}
+
+.well .p {
+  color: var(--ink2);
+  user-select: none;
+}
+
+.well .k {
+  color: var(--keyword);
+}
+
+.well .s {
+  color: var(--string);
+}
+
+.well .n {
+  color: var(--number);
+}
+
+.well :is(.c, .u) {
+  color: var(--ink2);
+}
+
+.well .x {
+  color: var(--signal);
+}
+
+/* ---- The landing page */
+
+.home .wrap {
+  width: min(100%, var(--measure));
+  margin-inline: auto;
+  padding: 2rem var(--gutter) 6rem;
+}
+
+.hero h1 {
+  max-width: 14em;
+  margin: 0 0 1rem;
+  font: 600 1.75rem / 2rem var(--display);
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.hero .lead {
+  max-width: 36rem;
+  margin: 0;
+  color: var(--ink2);
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  text-wrap: pretty;
+}
+
+.hero .lead a {
+  color: var(--ink);
+  text-decoration-color: var(--ink3);
+  text-underline-offset: 0.2em;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  margin: 1.75rem 0 0.75rem;
+}
+
+.actions .key-label {
+  color: var(--ink);
+}
+
+.meta {
+  margin: 0 0 2.5rem;
+  color: var(--ink2);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.meta a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--ink3);
+  text-underline-offset: 0.2em;
+}
+
+.hero .diagram {
+  margin: 0;
+}
+
+/* Each section: its heading in the first four of twelve parts and its copy in the other eight. */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 4rem;
+}
+
+.row > h2 {
+  margin: 0 0 1rem;
+  font: 600 1.25rem / 1.75rem var(--display);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.row .prose :is(p, ul:not(.groups), ol, details) {
+  max-width: 36rem;
+}
+
+/* A paragraph that opens with a sentence in bold takes that sentence as its title. */
+.prose .led > strong:first-child {
+  display: block;
+  margin-bottom: 0.125rem;
+}
+
+/* The kinds of finding, as a grid of groups. */
+.prose .groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: 1.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.prose .groups > li {
+  margin: 0;
+}
+
+.groups .title {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.prose .groups > li > ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prose .groups > li > ul > li {
+  margin: 0 0 0.375rem;
+  color: var(--ink2);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.groups code {
+  color: var(--ink);
+}
+
+/* When to use it, and when not: two columns of titles. */
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: 1.5rem;
+  margin: 0 0 1rem;
+}
+
+.prose .columns .title {
+  margin: 0 0 0.5rem;
+}
+
+.prose .columns ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prose .columns li {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.prose .more {
+  margin-top: 1.5rem;
+}
+
+.prose .more a {
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.prose .more a:hover {
+  text-decoration: underline;
+}
+
+.prose .more a::after {
+  content: "\00a0→";
+}
+
+@media (min-width: 48rem) {
+  .home .wrap {
+    padding-top: 3rem;
+  }
+
+  .hero h1 {
+    font-size: 2.5rem;
+    line-height: 2.75rem;
+    letter-spacing: -0.03em;
+  }
+}
+
+@media (min-width: 60rem) {
+  .row {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    column-gap: 1.5rem;
+    margin-top: 6rem;
+  }
+
+  .row > h2 {
+    position: sticky;
+    top: calc(var(--header) + 1.5rem);
+    grid-column: 1 / span 4;
+    align-self: start;
+    max-width: 16em;
+    padding-right: 1rem;
+    font-size: 1rem;
+    line-height: 1.25rem;
+  }
+
+  .row > .body {
+    grid-column: 5 / -1;
+  }
+}
+
+/* ---- The docs: the pages at the left, the page in the middle, its headings at the right. */
+
+.docs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: min(100%, var(--measure));
+  margin-inline: auto;
+  padding: 1.5rem var(--gutter) 6rem;
+}
+
+.side,
+.toc {
+  display: none;
+}
+
+.group + .group {
+  margin-top: 1.5rem;
+}
+
+.group .label {
+  margin: 0 0 0.375rem;
+}
+
+.group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.group a {
+  display: block;
+  padding: 0.3125rem 0;
+  color: var(--ink2);
+  font-size: 0.9375rem;
+  line-height: 1.375rem;
+  text-decoration: none;
+}
+
+.group a:hover,
+.group a[aria-current] {
+  color: var(--ink);
+}
+
+.group a[aria-current] {
+  font-weight: 500;
+}
+
+.pages {
+  margin: 0 0 1.5rem;
+}
+
+.pages > summary {
+  cursor: pointer;
+}
+
+.pages[open] > summary {
+  margin-bottom: 1rem;
+}
+
+.doc h1 {
+  margin: 0 0 0.5rem;
+  font: 600 1.75rem / 2.25rem var(--display);
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.page-actions {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 1.25rem;
+  margin: 0 0 2rem;
+}
+
+.agents > summary {
+  list-style: none;
+}
+
+.agents > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agents > summary::after {
+  content: "\00a0+";
+}
+
+.agents[open] > summary::after {
+  content: "\00a0−";
+}
+
+.agents > p {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-width: 28rem;
+  margin: 0.25rem 0 0;
+  padding: 0.75rem 1rem;
+  border-radius: 2px;
+  background: var(--sunk);
+  font-size: 0.875rem;
+  line-height: 1.375rem;
+}
+
+.agents a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--ink3);
+  text-underline-offset: 0.2em;
+}
+
+.pager {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  margin-top: 4rem;
+}
+
+.pager a {
+  display: block;
+  padding: 0.5rem 0;
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.pager a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.pager .label {
+  display: block;
+}
+
+.pager [rel="next"] {
+  grid-column: 2;
+  text-align: right;
+}
+
+.toc .label {
+  margin: 0 0 0.5rem;
+}
+
+.toc ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc a {
+  display: block;
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  border-left: 1px solid transparent;
+  color: var(--ink2);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  text-decoration: none;
+}
+
+.toc a:hover {
+  color: var(--ink);
+}
+
+.toc a[aria-current] {
+  border-left-color: var(--ink);
+  color: var(--ink);
+}
+
+@media (min-width: 56rem) {
+  .docs {
+    grid-template-columns: 13rem minmax(0, 40rem);
+    column-gap: 3rem;
+  }
+
+  .side,
+  .toc {
+    position: sticky;
+    top: calc(var(--header) + 1.5rem);
+    align-self: start;
+    max-height: calc(100vh - var(--header) - 3rem);
+    overflow-y: auto;
+  }
+
+  .side {
+    display: block;
+  }
+
+  .pages {
+    display: none;
+  }
+}
+
+@media (min-width: 80rem) {
+  .docs {
+    grid-template-columns: 13rem minmax(0, 40rem) minmax(0, 1fr);
+  }
+
+  .toc {
+    display: block;
+  }
+}
+
+@media (forced-colors: active) {
+  .foot .bar,
+  .prose th {
+    border-color: CanvasText;
+  }
+}

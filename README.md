@@ -29,35 +29,37 @@ That first look needs no config. It prints the findings, an outline of the page,
 
 ## What it finds
 
+Each finding is one sentence that names the element and, where it can, says by how much.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/media/ra-look-dark.png">
   <img src=".github/media/ra-look.png" width="830" alt="A phone screenshot of ra's broken fixture page with seven numbered problems, beside the sentences ra printed for them: the page scrolls sideways by 531px, a button's label is cut off by 84px, a long word runs 119px past its box, two lines are drawn over each other, a Pay now button is covered by another element, two tap targets are 18 by 18 pixels, and grey text has 1.9:1 contrast.">
 </picture>
 
-That is `ra look broken --at phone` on [a fixture page](test/fixtures/site/broken.html) of planted problems. It printed 37 findings, and the picture shows seven. Each finding is one sentence that names the element and, where it can, says by how much. There are 19 kinds:
+That is `ra look broken --at phone` on [a fixture page](test/fixtures/site/broken.html) of planted problems. It printed 37 findings, and the picture shows seven. There are 19 kinds:
 
 - **Layout:**
-  - `page-scroll`: the page scrolls sideways.
-  - `cut-off`: text or a control is clipped by a box that hides overflow.
-  - `spill`: text runs out of its box.
-  - `overlap`: two pieces of text are painted over each other.
-  - `covered`: something sits on top of a control, so a click would land on that instead.
+  - [`page-scroll`](docs/findings.md#page-scroll): the page scrolls sideways.
+  - [`cut-off`](docs/findings.md#cut-off): text or a control is clipped by a box that hides overflow.
+  - [`spill`](docs/findings.md#spill): text runs out of its box.
+  - [`overlap`](docs/findings.md#overlap): two pieces of text are painted over each other.
+  - [`covered`](docs/findings.md#covered): something sits on top of a control, so a click would land on that instead.
 - **Reading and reaching:**
-  - `contrast`: text has too little contrast with what is painted behind it.
-  - `small-target`: tap targets on touch views are small and crowded.
-  - `no-name`: a control has no accessible name, or an image has no alt text.
+  - [`contrast`](docs/findings.md#contrast): text has too little contrast with what is painted behind it.
+  - [`small-target`](docs/findings.md#small-target): tap targets on touch views are small and crowded.
+  - [`no-name`](docs/findings.md#no-name): a control has no accessible name, or an image has no alt text.
 - **Content:**
-  - `image`: an image did not load, or is stretched.
-  - `blank`: the page shows nothing.
-  - `document`: there is no title or viewport, or the status is unexpected.
-  - `error-overlay`: a dev-server error overlay is showing.
+  - [`image`](docs/findings.md#image): an image did not load, or is stretched.
+  - [`blank`](docs/findings.md#blank): the page shows nothing.
+  - [`document`](docs/findings.md#document): there is no title or viewport, or the status is unexpected.
+  - [`error-overlay`](docs/findings.md#error-overlay): a dev-server error overlay is showing.
 - **Behaviour:**
-  - `console`: an error was logged.
-  - `request`: a request failed or answered 4xx/5xx.
-  - `outside`: a request left the world.
-  - `load`: the page did not load.
-  - `busy`: the page never went quiet.
-  - `expect` and `steps`: your own checks or steps failed.
+  - [`console`](docs/findings.md#console): an error was logged.
+  - [`request`](docs/findings.md#request): a request failed or answered 4xx/5xx.
+  - [`outside`](docs/findings.md#outside): a request left the world.
+  - [`load`](docs/findings.md#load): the page did not load.
+  - [`busy`](docs/findings.md#busy): the page never went quiet.
+  - [`expect` and `steps`](docs/findings.md#expect-and-steps): your own checks or steps failed.
 
 A false alarm sends an agent to change a page that was right, so ra counts one as a bug. Its twin fixture, [`tricky.html`](test/fixtures/site/tricky.html), holds 14 sections of things that only look wrong, such as deliberate ellipses, line clamps, scrolling strips, off-screen drawers, and screen-reader-only text. ra's tests fail if it reports anything there, at desktop or phone size, in dark mode, with scripts off, or after a jump down the page. [docs/findings.md](docs/findings.md) says how each kind is decided, what it deliberately leaves alone, and how to accept one.
 
@@ -463,6 +465,8 @@ To report a false alarm or a problem ra missed, [open an issue](https://github.c
 - [Findings](docs/findings.md): how each kind of finding is decided, what it deliberately ignores, and how to accept one.
 - [The skill](skills/ra/SKILL.md): when a coding agent should look, and how it reads what ra prints.
 - [From Direct to ra](docs/from-direct.md): ra replaces [Direct](https://github.com/hraness/direct), an earlier Hraness framework that also gave each state of an app its own URL in a fixture world. This page says what ra kept, what it dropped, and why.
+
+Everything here is also on [the website](https://hraness.github.io/ra/), with each page in Markdown and an [llms.txt](https://hraness.github.io/ra/llms.txt) for agents.
 
 ## Licence
 
