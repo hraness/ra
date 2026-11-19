@@ -30,7 +30,15 @@ const pages = new Map(files.filter((file) => file.endsWith(".html")).map((file) 
 
 const decode = (text: string) =>
   text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
-const plain = (html: string) => decode(html.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+/** A page's text: its tags removed until none is left, then its entities decoded. */
+function plain(html: string): string {
+  let before: string;
+  do {
+    before = html;
+    html = html.replace(/<[^>]+>/g, "");
+  } while (html !== before);
+  return decode(html).replace(/\s+/g, " ").trim();
+}
 const ids = (html: string) => [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => decode(match[1]!));
 
 /** Every address a page points at: links, pictures and their sources, and the site's own addresses in its meta tags. */

@@ -52,7 +52,17 @@ const decode = (html: string) =>
         ? String.fromCodePoint(Number(name.slice(1)))
         : (entities[name.toLowerCase()] ?? whole),
   );
-const plain = (html: string) => decode(html.replace(/<[^>]*>/g, "")).replace(/\s+/g, " ").trim();
+/** A fragment without its tags. Each pass removes whole tags, and the passes go on until one removes nothing. */
+function untagged(html: string): string {
+  let before: string;
+  do {
+    before = html;
+    html = html.replace(/<[^>]*>/g, "");
+  } while (html !== before);
+  return html;
+}
+/** A fragment's text, with its entities decoded. It is plain text, so it is escaped wherever it goes into HTML. */
+const plain = (html: string) => decode(untagged(html)).replace(/\s+/g, " ").trim();
 const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const firstSentence = (text: string) => /^(.+?[.!?])(?:\s|$)/.exec(text)?.[1] ?? text;
 /** A description taken from after a colon, as a sentence of its own. ra keeps its small letter. */
