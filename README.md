@@ -6,16 +6,26 @@
 
 ra opens your web app in Chromium, inside a fake world you describe, and tells your coding agent in sentences what a person would find wrong. It is UI testing for agents, made to run in the middle of a change.
 
-A coding agent that checks a UI change with a screenshot leaves a model to judge it, and [models misjudge the measurements](#how-it-compares) that layout bugs come down to. ra measures them: boxes come from the layout engine and contrast from the painted pixels, so CI has no screenshot baselines to approve. Each finding is one sentence that names the element and, where it can, says by how much.
+It has two halves, and your app runs unchanged between them. **The world** is the mocking half: the API replies you write, the hosts you block or allow, and stand-ins for the services your server calls. A request that nothing in it answers is stopped and reported. **The look** is the perception half: it measures what the browser drew, with boxes from the layout engine and contrast from the painted pixels. No model judges a picture, because [models misjudge the measurements](#how-it-compares) that layout bugs come down to, and CI has no screenshot baselines to approve. Each finding is one sentence that names the element and, where it can, says by how much.
+
+| Number | What it is |
+| ---: | --- |
+| **50.04%** | The average accuracy of nine multimodal models at spotting text overflow in screenshots of mobile apps, on a test where a coin flip scores 50% ([UI-Lens](https://openaccess.thecvf.com/content/CVPR2026/papers/Xiang_UI-Lens_Assessing_General_MLLMs_Potential_to_Automate_UI_Display_Quality_CVPR_2026_paper.pdf), CVPR 2026). ra measures the layout and asks no model. |
+| **37 and 0** | Findings on ra's [page of planted problems](test/fixtures/site/broken.html) at phone size, and on [its twin](test/fixtures/site/tricky.html), 14 sections of things that only look wrong. A finding on the twin fails ra's tests. |
+| **19** | Kinds of finding: 17 from five readings of the page, and two from your own checks ([how it works](#how-it-works)). |
+| **About 500** | Tokens in a look at a page with nothing wrong. A screenshot at ra's desktop size, 1440×900, costs up to 1,716 tokens under [Claude's formula](https://platform.claude.com/docs/en/build-with-claude/vision). |
+| **1–3 seconds** | One look, which is one state through one view, in CI on the nine sites [in use](#in-use). |
+| **22** | Fixes that ra's findings led to in its first two days on those sites, 19 of them from built-in checks. |
+| **0** | Runtime dependencies. ra is about 6,000 lines in 14 source files, and it drives your project's own Playwright. |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/media/ra-look-dark.png">
   <img src=".github/media/ra-look.png" width="830" alt="A phone screenshot of ra's broken fixture page with seven numbered problems, beside the sentences ra printed for them: the page scrolls sideways by 531px, a button's label is cut off by 84px, a long word runs 119px past its box, two lines are drawn over each other, a Pay now button is covered by another element, two tap targets are 18 by 18 pixels, and grey text has 1.9:1 contrast.">
 </picture>
 
-That is `ra look broken --at phone` on [a fixture page](test/fixtures/site/broken.html) full of planted problems. Its twin, [`tricky.html`](test/fixtures/site/tricky.html), is full of things that only look wrong, and ra must print nothing for it.
+That is `ra look broken --at phone` on [a fixture page](test/fixtures/site/broken.html) of planted problems. It printed 37 findings of 12 kinds, and the picture shows seven of them. Its twin, [`tricky.html`](test/fixtures/site/tricky.html), holds 14 sections of things that only look wrong, and ra must print nothing for it.
 
-The page runs inside a fake world: the API replies you write, the hosts you block, and stand-ins for the services your server calls. A request that nothing in the world answers is stopped and reported. You name each state once, such as an empty inbox, a failed payment, or a name 80 characters long, and ra looks at it through every view you list, such as desktop, a phone, and dark mode.
+You name each state of your app once, such as an empty inbox, a failed payment, or a name 80 characters long, and ra looks at it through every view you list, such as desktop, a phone, and dark mode.
 
 ## Start
 
@@ -28,6 +38,49 @@ npx ra look http://127.0.0.1:3000/ --at phone
 ```
 
 If your project already has `playwright` or `@playwright/test`, leave `playwright-core` out and install the browser with `npx playwright install chromium`. That first look needs no config. It prints the findings, an outline of the page, a sketch of its layout, and where it wrote its pictures: a temporary folder for now, and `.ra/look/` once the project has a config. To check every screen at once, [name your states](#setting-up) and run `ra check`.
+
+## How it works
+
+Your app runs unchanged between a world that answers its requests and a look that measures what the browser drew.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/media/ra-how-dark.png">
+  <img src=".github/media/ra-how.png" width="830" alt="A diagram in three columns. On the left, the world decides each request in this order: a reply you wrote answers in the server's place, a host you block is dropped quietly, the app itself answers, a host you allow really answers, and anything else is stopped and reported. In the middle is your app, unchanged, in Chromium: ra's broken fixture page at phone size. On the right, the look takes five readings with no model: boxes from the layout engine, what is on top at each control's centre, two pictures with the text and without, roles, names, and the document, and the console and the network. Each reading shows a finding it led to. Along the bottom is what the agent reads: 123 lines of text holding 37 findings, an outline, a layout sketch, and two pictures.">
+</picture>
+
+The picture is drawn from one look, `ra look broken --at phone` on ra's fixture site: seven requests, five readings, and 123 lines of text.
+
+### The world
+
+The world is everything outside your app, and you describe it in the config. It decides what each request gets, in this order:
+
+1. **A reply you wrote** (`replies`) answers in the server's place.
+2. **A host you block** (`block`), such as analytics, is dropped quietly.
+3. **The app itself** answers its own paths.
+4. **A host you allow** (`allow`), such as a font CDN, is really reached.
+5. **Anything else** is stopped and reported as an `outside` finding.
+
+The broken fixture page makes seven requests. The app answers five. The other two go to `api.example.com` and `analytics.example.com`, which nothing in its world answers, so both are stopped and reported.
+
+Those rules judge the requests a page makes. Beneath them the browser itself is closed, by a proxy that refuses everything but the app and the allowed hosts, a resolver rule that lets no other name resolve, and WebRTC held to that proxy. That stops what routing never sees: redirect hops, IP addresses, and WebRTC traffic. `ra doctor` tries four ways out in your browser, and each must be stopped: another port on this machine, an IP address, an outside host, and a WebRTC connection. The world stays closed against a deployment too.
+
+A state is a URL into a world: a path, plus the replies, storage, cookies, and clock that go with it, and optional steps. Stand-in servers (`upstreams`) answer what your app's *server* calls. Only the world is fake. ra serves or starts your actual app, and nothing runs inside it: there is no SDK, bridge, test build, or fixtures database.
+
+### The look
+
+The look reads the page five ways, and no model takes part in any of them:
+
+| Reading | How ra takes it | What it finds |
+| --- | --- | --- |
+| Boxes | The layout engine's own rectangles for each element and each line of text, set against the screen, the boxes that clip them, each other, and each image's own size. | `page-scroll`, `cut-off`, `spill`, `overlap`, `small-target`, `image`, `blank` |
+| What is on top | The element the browser reports on top at the centre of each control. ra scrolls the page in half-screen steps, up to 40 screens down, and tests each control as it passes the middle of the screen. | `covered` |
+| Two pictures | The page as it is, and the page with every glyph made transparent. The second is the true background under each line of text, whatever painted it: a gradient, a photo, an overlay, or a blend. | `contrast` |
+| Roles, names, and the document | Each control's role and accessible name, which ra also prints as the outline, with the page's title, viewport, and response status. | `no-name`, `document`, `error-overlay` |
+| The console and the network | Every error logged and every request made, until the network has been quiet for 200 ms or 5 seconds have passed. | `console`, `request`, `outside`, `load`, `busy` |
+
+Your own checks add the last two kinds, `expect` and `steps`, which makes 19. [docs/findings.md](docs/findings.md) says how each kind is decided and what it deliberately leaves alone.
+
+What comes out is text first: findings as sentences that each name the element, an outline whose lines map onto `getByRole`, a sketch of the layout, and the paths of two pictures for when the words leave a doubt. `ra check` takes the same look at every state through every view, and exits 1 when anything is wrong.
 
 ## For coding agents
 
@@ -45,7 +98,7 @@ The loop:
 3. For a change with a wide reach, run `ra snap` first and `ra diff` afterwards.
 4. Open a picture only when the words leave a doubt, such as how a gradient looks. Every look writes `.ra/look/<state>.<view>.png` (the first screen) and `.full.png` (the whole page).
 
-A look is short, and it is text the agent can act on. On ra's fixture site, a page with nothing wrong prints 52 lines, about 500 tokens: “no findings”, an outline whose lines map onto `getByRole`, a sketch of the layout, and where the pictures are. The broken page at phone prints 123 lines, about 1,900 tokens, for 37 findings. When one faint colour is used in many places, a look names the first ten texts and counts the rest.
+A look is short, and it is text the agent can act on. On ra's fixture site, a page with nothing wrong prints 52 lines, about 500 tokens at four characters a token: “no findings”, an outline whose lines map onto `getByRole`, a sketch of the layout, and where the pictures are. The broken page at phone prints 123 lines, about 1,900 tokens, for 37 findings. When one faint colour is used in many places, a look names the first ten texts and counts the rest.
 
 <details>
 <summary>A look at a page with nothing wrong, trimmed</summary>
@@ -94,11 +147,11 @@ pictures: .ra/look/home.desktop.png (first screen), .ra/look/home.desktop.full.p
 
 An agent that wants to know whether its UI change worked has three easy options, and each misses something.
 
-**A screenshot for the model to judge.** Models are weakest at the measurements that layout bugs come down to. In [UI-Lens](https://openaccess.thecvf.com/content/CVPR2026/papers/Xiang_UI-Lens_Assessing_General_MLLMs_Potential_to_Automate_UI_Display_Quality_CVPR_2026_paper.pdf) (CVPR 2026), nine multimodal models looked for display defects in screens from 11 Chinese mobile apps, annotated by design experts. On text overflow their accuracy averaged 50.04%, on a test set where a coin flip scores 50%, and their F1 averaged 22.19%. On container overlap the averages were 54.14% and 33.75%. A screenshot also shows only what fits in it: a picture of the screen crops whatever makes the page scroll sideways, and a picture of a long page is scaled down before the model sees it. ra takes those measurements from the browser: boxes from the layout engine, and contrast from the painted pixels, read with the text shown and with it hidden.
+**A screenshot for the model to judge.** Models are weakest at the measurements that layout bugs come down to. In [UI-Lens](https://openaccess.thecvf.com/content/CVPR2026/papers/Xiang_UI-Lens_Assessing_General_MLLMs_Potential_to_Automate_UI_Display_Quality_CVPR_2026_paper.pdf) (CVPR 2026), nine multimodal models looked for display defects in screens from 11 Chinese mobile apps, annotated by design experts. On text overflow their accuracy averaged 50.04%, on a test set where a coin flip scores 50%, and their F1 averaged 22.19%. On container overlap the averages were 54.14% and 33.75%. A screenshot also shows only what fits in it. A picture of the screen crops whatever makes the page scroll sideways: the broken fixture page is 921px wide in a 390px view, so more than half of its width is outside the picture. A picture of a long page is scaled down before the model sees it: [Claude's docs](https://platform.claude.com/docs/en/build-with-claude/vision) put the limit at 2,576px on the long edge for Claude 4.7 and later models, and at 1,568px for the others, so a page 5,000px tall arrives at about half its size or less. ra takes those measurements from the browser: boxes from the layout engine, and contrast from the painted pixels, read with the text shown and with it hidden.
 
 **A Playwright script against the real network.** Browser tests flake far more than most tests. At Google, 1.65% of all tests were flaky, against 10.45% of Java WebDriver tests and 18.72% of Python ones ([Google Testing Blog, 2017](https://testing.googleblog.com/2017/04/where-do-our-flaky-tests-come-from.html)). A 2025 study found that “75% of flaky tests across all projects belong to a cluster” of tests that fail together, with “intermittent networking issues and instabilities in external dependencies as the predominant causes of systemic flakiness” ([Parry et al.](https://arxiv.org/abs/2504.16777)). Playwright's own advice is “Only test what you control” and to “use the Playwright Network API and guarantee the response needed” ([best practices](https://playwright.dev/docs/best-practices)). ra does that for every state, with no test code. Its world is fake by default, and a request that nothing in it answers is stopped and reported.
 
-**An accessibility snapshot.** A tree of roles and names is text a model can read, but it leaves out colour, geometry, and stacking order, so it cannot show low contrast, overlap, clipping, or a covered button. [Playwright's MCP docs](https://playwright.dev/mcp/snapshots) suggest adding screenshots where layout matters, and describe acting on screenshots as “Approximate — requires coordinate guessing”. ra prints the same kind of outline and puts measured findings beside it.
+**An accessibility snapshot.** A tree of roles and names is text a model can read, but it leaves out colour, geometry, and stacking order, so it cannot show low contrast, overlap, clipping, or a covered button. On the broken fixture page, 29 of the 37 findings are about colour, geometry, or stacking order. [Playwright's MCP docs](https://playwright.dev/mcp/snapshots) suggest adding screenshots where layout matters, and describe acting on screenshots as “Approximate — requires coordinate guessing”. ra prints the same kind of outline and puts measured findings beside it.
 
 | | Screenshot to a model | Script against the network | Accessibility snapshot | ra |
 | --- | --- | --- | --- | --- |
@@ -106,6 +159,21 @@ An agent that wants to know whether its UI change worked has three easy options,
 | Contrast, overlap, clipping, covering | Often misjudged | Only what you assert | Not in the tree | Measured and reported |
 | Live services in the loop | Unless you mock them | Unless you mock them | Unless you mock them | Only the hosts you allow by name; any other request is stopped and reported |
 | Empty, failing, and overflowing states | Reached by hand | Mocks you write | Reached by hand | Named once in a config |
+
+## Design decisions
+
+[How it compares](#how-it-compares) argues the three largest choices: measure and do not ask a model, close the world, and put measured findings beside the outline. Each of the others has a number behind it too.
+
+- **Contrast comes from painted pixels, not from CSS.** WCAG asks for 4.5:1, or 3:1 for large text ([SC 1.4.3](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)). Of the seven contrast fixes [in use](#in-use), three were text over something CSS names no colour for: a blurred header at 3.1:1, a picture's drawn shadow at 3.5:1, and light glows at 4.1–4.3:1. ra reads the background across each whole line, reports the line only when three quarters of that background falls short, and prints the median ratio.
+- **Small tap targets are reported only when crowded.** WCAG's minimum is 24 by 24 CSS pixels, and its exceptions include a target with enough room around it and a link in a sentence ([SC 2.5.8](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)). ra leaves the same two alone. The three fixes in use were links 18px, 19px, and 21px tall, each with another control close by.
+- **A 320px view is built in.** WCAG's reflow criterion asks that a page work at 320 CSS pixels wide without scrolling sideways ([SC 1.4.10](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html)). In use, a hero in English scrolled sideways at 320–374px. The 390px `phone` view does not show that, and the 320px `narrow` view does.
+- **Quiet on correct pages.** A false alarm sends an agent to change a page that was right. [`tricky.html`](test/fixtures/site/tricky.html) holds 14 sections of things that only look wrong, and ra's tests fail if it reports anything there at desktop or phone size, in dark mode, with scripts off, or after a jump down the page. The 23 patterns that ra misjudged in its first two days of use are each fixed and reproduced in its tests.
+- **Text first, pictures second.** A look at a page with nothing wrong is about 500 tokens. Under [Claude's formula](https://platform.claude.com/docs/en/build-with-claude/vision) of one token for each 28×28-pixel patch, a picture of the whole broken fixture page, 921×2523, costs up to 3,003 tokens. The look that names its 37 findings is about 1,900.
+- **One faint colour is named ten times, then counted.** On one public page, 235 of 237 findings were the same grey at 3.5:1. Listing every one took 532 lines. Naming the first ten texts and counting the rest takes 83 ([#11](https://github.com/hraness/ra/pull/11)).
+- **ra does the waiting, and every wait has a limit.** In a study of 235 flaky UI tests from 62 web and Android projects, 45.1% came from a test that did not wait properly for something asynchronous ([Romano et al., ICSE 2021](https://arxiv.org/abs/2103.02669)). A state has no sleeps to write: ra waits for 200 ms of network quiet and then 120 ms of stillness. By default it reports what is still open after 5 seconds as `busy`, and each part of a look stops at 30 seconds.
+- **Nothing runs inside your app.** ra's predecessor asked an app to route its outside calls through a port, write adapters, and ship a second build. It carried 18,445 lines of source and 15,786 of tests, and its one consuming app still wrote roughly a thousand lines of its own checks ([From Direct to ra](docs/from-direct.md)). ra is about 6,000 lines, and a first look needs no config.
+- **No pixel baselines in CI.** [Playwright's guide](https://playwright.dev/docs/test-snapshots) warns that rendering varies with the host's operating system, version, settings, hardware, power source, and headless mode. ra's own use saw the same: two texts that passed on a Mac measured 4.2:1 and 4.3:1 under Linux's font rendering. `ra check` compares a page with rules, not with an earlier picture, so there is no baseline to store or approve. `ra snap` and `ra diff` keep their files in `.ra/`, which ignores itself in git, for the length of one change.
+- **One browser, launched one way.** ra runs the Chromium that your project's pinned Playwright installed and refuses an installed, auto-updating Chrome, so the browser changes only when your pin does. ra's own browser tests run on playwright-core 1.58.2, 1.62.1, and 1.65.0, and every run prints the browser and version it used.
 
 ## In use
 
@@ -125,7 +193,7 @@ A false alarm counts as a bug in ra. Those sites turned up 23 patterns that ra m
 
 ## When it is worth it
 
-Browser checks are slow, flaky when written carelessly, and easy to write in ways that prove nothing. ra is only worth running when the answer depends on what a browser actually paints.
+A browser check costs more than a unit test. A look takes about 1–3 seconds in CI, and at Google, WebDriver tests were flaky six to eleven times as often as tests overall ([how it compares](#how-it-compares)). So ra is only worth running when the answer depends on what a browser paints.
 
 **Use ra when:**
 
@@ -139,7 +207,7 @@ Browser checks are slow, flaky when written carelessly, and easy to write in way
 - **Logic.** If it can be tested without a browser, test it without one.
 - **Restating the implementation.** Asserting `toHaveCSS("color", "rgb(…)")` or a class name proves that you wrote what you wrote. ra asks what a person would ask instead: whether the text can be read, whether the control can be reached, and whether it fits.
 - **Proving a live system works.** ra closes the world on purpose. Smoke tests and monitoring against real services do that job. `ra check --url https://…` against a deployment checks what the deployment *shows*, and the outside world stays closed even then.
-- **Pixel baselines in CI, or coverage ledgers.** Baselines drift with fonts and anti-aliasing, and people re-approve them without looking. Snapshots in ra live on your machine for the length of one change. CI runs `ra check`, which has no baselines.
+- **Pixel baselines in CI, or coverage ledgers.** [Playwright's guide](https://playwright.dev/docs/test-snapshots) warns that rendering varies with the host's operating system, version, settings, hardware, power source, and headless mode, so a baseline holds only where it was made. Snapshots in ra live on your machine for the length of one change. CI runs `ra check`, which has no baselines.
 - **Cross-browser matrices.** ra drives Chromium only. Use Playwright Test when WebKit- or Firefox-specific behaviour matters.
 - **A full accessibility audit.** ra reports what a person would trip over: unnamed controls, missing alt text, low painted contrast, and small tap targets. Run axe or a manual audit for the rest.
 
@@ -148,23 +216,10 @@ Browser checks are slow, flaky when written carelessly, and easy to write in way
 - ra drives Chromium only, and it is not a full accessibility audit; see [when it is worth it](#when-it-is-worth-it).
 - It runs on macOS and Linux.
 - Placeholder text is not checked for contrast yet.
+- Contrast is read from painted pixels, so text close to a threshold can pass under one system's font rendering and fall short under another's.
 - Pictures and contrast cover at most the first 12,000px of a page. ra says so when a page is taller.
 - When a page scrolls inside an element rather than as a whole, its pictures show that element's first screen, and ra says so.
 - ra is new. So far it runs only on Hraness's own sites.
-
-## Rules
-
-1. **Only the world is fake.** ra serves or starts your actual app and drives Playwright's Chromium. What lies *outside* the app answers as you describe it.
-2. **A state is a URL into a world.** A state is an address plus the answers the outside world gives: a path, its fake API replies, storage, cookies, a clock, and optional steps. It needs no fixtures database or test build.
-3. **A look is text first.** Every look prints:
-   - an accessibility outline whose lines map onto `getByRole`
-   - a layout sketch
-   - findings as sentences, each naming the element
-   - picture paths, which are there for when the text is not enough
-4. **The world is closed.** Every request that leaves the app is replied to, blocked by name, allowed by name, or stopped and reported. Routing judges each request the page makes. Beneath it, the browser sends everything but the app and the allowed hosts to a proxy that refuses it, so the redirect hops, IP addresses, and WebRTC traffic that routing never sees are stopped too. This holds against deployments, and `ra doctor` tries it in your browser.
-5. **ra launches its browser one way and prints a receipt.** ra runs the Chromium that your project's pinned Playwright provisioned. It refuses an installed, auto-updating Google Chrome. It launches with one merged `--disable-features` switch and audio muted, reads the running browser's command line back over CDP to prove it, and prints the result as a receipt.
-6. **Nothing runs inside your app.** There is no SDK, bridge, test build, or port to implement. If your app runs, ra can look at it.
-7. **Pixel baselines are ephemeral.** `ra snap` and `ra diff` keep their files in `.ra/`, which ignores itself in git. Nothing ra writes is meant to be committed.
 
 ## Setting up
 
@@ -326,7 +381,7 @@ Each finding is a sentence that names the element and says why it matters. [docs
   - `busy`: the page never went quiet.
   - `expect` and `steps`: your own checks or steps failed.
 
-ra exists to stay quiet on pages that are fine, so a false alarm is a bug in ra. The fixture page [`test/fixtures/site/tricky.html`](test/fixtures/site/tricky.html) collects deliberate ellipses, line clamps, scrolling strips, off-screen drawers, and screen-reader-only text. ra must report nothing on it.
+ra exists to stay quiet on pages that are fine, so a false alarm is a bug in ra. The fixture page [`test/fixtures/site/tricky.html`](test/fixtures/site/tricky.html) holds 14 sections of patterns that only look wrong, among them deliberate ellipses, line clamps, scrolling strips, off-screen drawers, and screen-reader-only text. ra must report nothing on it.
 
 ## In CI
 
@@ -392,7 +447,7 @@ It then launches with:
 
 After launch, ra reads `Browser.getBrowserCommandLine` and refuses to continue unless the running browser has every one of these. Every run ends with a receipt line. `ra doctor` shows the same receipt and tries the closed world: a throwaway app must answer, while another port on this machine, an IP address, an outside host, and a WebRTC connection must each be stopped.
 
-ra runs on macOS and Linux and is tested with playwright-core 1.58 through 1.65.
+ra runs on macOS and Linux with playwright-core 1.58 or later. Its browser tests run on 1.58.2, 1.62.1, and 1.65.0.
 
 ## As a library
 
@@ -419,7 +474,7 @@ Each release on GitHub is immutable, with the packed tarball as its one asset, a
 gh release verify-asset v0.1.6 hraness-ra-0.1.6.tgz -R hraness/ra
 ```
 
-ra's browser tests run the CLI against [a fixture site](test/fixtures/site). Every kind of finding has a planted case in `broken.html`, and `tricky.html`, full of patterns that only look wrong, must stay clean. In a clone, run `bun install` and then `bun run check`, which runs the type check, the unit tests, and the build. The browser tests, `bun run test:browser`, need the Chromium that the pinned playwright-core installs: `node node_modules/playwright-core/cli.js install chromium`.
+ra's browser tests run the CLI against [a fixture site](test/fixtures/site). Each of the 19 kinds of finding has a planted case there or in a test's own pages, 12 of them in `broken.html`, and `tricky.html`, with its 14 sections of patterns that only look wrong, must stay clean. In a clone, run `bun install` and then `bun run check`, which runs the type check, the unit tests, and the build. The browser tests, `bun run test:browser`, need the Chromium that the pinned playwright-core installs: `node node_modules/playwright-core/cli.js install chromium`.
 
 To report a false alarm or a problem ra missed, [open an issue](https://github.com/hraness/ra/issues) with the page, or a small copy of it, and what ra printed.
 
