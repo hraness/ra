@@ -1,5 +1,7 @@
 # ra
 
+**Catch the UI bugs your agent can't see.**
+
 [![Release](https://img.shields.io/github/v/release/hraness/ra?label=release)](https://github.com/hraness/ra/releases/latest)
 [![CI](https://github.com/hraness/ra/actions/workflows/ci.yml/badge.svg)](https://github.com/hraness/ra/actions/workflows/ci.yml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
