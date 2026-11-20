@@ -104,12 +104,13 @@ jobs:
           sudo apt-get install -y bubblewrap
           cp /etc/hosts "$RUNNER_TEMP/ra-hosts"
           printf '\n127.0.0.1 app.localhost www.app.localhost\n' >> "$RUNNER_TEMP/ra-hosts"
-          bwrap --bind / / --proc /proc --dev /dev --ro-bind "$RUNNER_TEMP/ra-hosts" /etc/hosts bash -c '
-            id
-            ls -l "$(command -v node)"
-            node -e '''require("node:child_process").execFileSync(process.execPath, ["--version"], {stdio: "inherit"})'''
-            exec bun run test:browser
-          '
+          namespace=(bwrap --bind / / --proc /proc --dev /dev --ro-bind "$RUNNER_TEMP/ra-hosts" /etc/hosts)
+          "${namespace[@]}" node <<'JS'
+          const fs = require("node:fs");
+          console.log({uid: process.getuid(), node: process.execPath, mode: (fs.statSync(process.execPath).mode & 0o777).toString(8)});
+          require("node:child_process").execFileSync(process.execPath, ["--version"], {stdio: "inherit"});
+          JS
+          "${namespace[@]}" bun run test:browser
       - if: runner.os != 'Linux'
         run: bun run test:browser
 
