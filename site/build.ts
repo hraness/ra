@@ -274,7 +274,7 @@ interface Context {
   local?: Set<string>;
 }
 
-const media = new Set<string>([".github/media/social-preview.png"]);
+const media = new Set<string>([".github/media/social-preview.png", ".github/media/preview.mp4"]);
 
 function pageLink(page: Built, hash: string, context: Context): string {
   const fragment = hash && hash !== page.anchor ? `#${encodeURIComponent(hash)}` : "";
@@ -515,7 +515,17 @@ function document(options: { path: string; title: string; description: string; r
 <meta property="og:site_name" content="ra">
 <meta property="og:title" content="${escape(options.title)}">
 <meta property="og:description" content="${escape(options.description)}">
+<meta property="og:url" content="${site}${options.path.replace(/index\.html$/, "")}">
 <meta property="og:image" content="${site}media/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="ra checks a website for visual and interaction problems.">
+${options.path === "index.html" ? `<meta property="og:video" content="${site}media/preview.mp4">
+<meta property="og:video:secure_url" content="${site}media/preview.mp4">
+<meta property="og:video:type" content="video/mp4">
+<meta property="og:video:width" content="1200">
+<meta property="og:video:height" content="630">` : ""}
+<meta name="twitter:image" content="${site}media/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f1">
