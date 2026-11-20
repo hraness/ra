@@ -94,12 +94,19 @@ jobs:
         with:
           path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
           key: ${{ steps.browser-cache.outputs.cache-primary-key }}
-      # Node's readiness probe needs these deployment-fixture names in addition
-      # to Chromium's built-in .localhost handling. The runner is ephemeral.
-      - name: Resolve the local deployment fixture
+      # Both Node's readiness probe and Chromium use the deployment fixture.
+      # Cloudflare supplies a read-only hosts mount, so bind this job's copy
+      # only inside an unprivileged namespace; retain all browser assertions.
+      - name: Check browsers with local deployment names
         if: runner.os == 'Linux'
-        run: printf '\n127.0.0.1 app.localhost www.app.localhost\n' | sudo tee -a /etc/hosts > /dev/null
-      - run: bun run test:browser
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          cp /etc/hosts "$RUNNER_TEMP/ra-hosts"
+          printf '\n127.0.0.1 app.localhost www.app.localhost\n' >> "$RUNNER_TEMP/ra-hosts"
+          bwrap --bind / / --ro-bind "$RUNNER_TEMP/ra-hosts" /etc/hosts bun run test:browser
+      - if: runner.os != 'Linux'
+        run: bun run test:browser
 
   required:
     name: Required
