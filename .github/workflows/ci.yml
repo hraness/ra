@@ -94,6 +94,11 @@ jobs:
         with:
           path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
           key: ${{ steps.browser-cache.outputs.cache-primary-key }}
+      # Node's readiness probe needs these deployment-fixture names in addition
+      # to Chromium's built-in .localhost handling. The runner is ephemeral.
+      - name: Resolve the local deployment fixture
+        if: runner.os == 'Linux'
+        run: printf '\n127.0.0.1 app.localhost www.app.localhost\n' | sudo tee -a /etc/hosts > /dev/null
       - run: bun run test:browser
 
   required:
