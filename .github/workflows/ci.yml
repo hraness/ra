@@ -17,7 +17,7 @@ concurrency:
 jobs:
   check:
     name: Check
-    runs-on: ubuntu-latest
+    runs-on: hraness-cf
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,7 +50,7 @@ jobs:
 
   browser:
     name: Browser (${{ matrix.os }}, playwright-core ${{ matrix.playwright }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ contains(fromJSON('["ubuntu-latest","ubuntu-24.04","ubuntu-slim"]'), matrix.os) && 'hraness-cf' || matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -94,13 +94,31 @@ jobs:
         with:
           path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
           key: ${{ steps.browser-cache.outputs.cache-primary-key }}
-      - run: bun run test:browser
+      # Both Node's readiness probe and Chromium use the deployment fixture.
+      # Cloudflare supplies a read-only hosts mount, so bind this job's copy
+      # only inside an unprivileged namespace; retain all browser assertions.
+      - name: Check browsers with local deployment names
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          cp /etc/hosts "$RUNNER_TEMP/ra-hosts"
+          printf '\n127.0.0.1 app.localhost www.app.localhost\n' >> "$RUNNER_TEMP/ra-hosts"
+          namespace=(bwrap --bind / / --proc /proc --dev /dev --ro-bind "$RUNNER_TEMP/ra-hosts" /etc/hosts)
+          "${namespace[@]}" node <<'JS'
+          const fs = require("node:fs");
+          console.log({uid: process.getuid(), node: process.execPath, mode: (fs.statSync(process.execPath).mode & 0o777).toString(8)});
+          require("node:child_process").execFileSync(process.execPath, ["--version"], {stdio: "inherit"});
+          JS
+          "${namespace[@]}" bun run test:browser
+      - if: runner.os != 'Linux'
+        run: bun run test:browser
 
   required:
     name: Required
     if: always()
     needs: [check, browser]
-    runs-on: ubuntu-latest
+    runs-on: hraness-cf
     timeout-minutes: 5
     steps:
       - name: Require every blocking job
