@@ -17,7 +17,7 @@ concurrency:
 jobs:
   check:
     name: Check
-    runs-on: ubuntu-latest
+    runs-on: hraness-cf
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,7 +50,7 @@ jobs:
 
   browser:
     name: Browser (${{ matrix.os }}, playwright-core ${{ matrix.playwright }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ contains(fromJSON('["ubuntu-latest","ubuntu-24.04","ubuntu-slim"]'), matrix.os) && 'hraness-cf' || matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -100,7 +100,7 @@ jobs:
     name: Required
     if: always()
     needs: [check, browser]
-    runs-on: ubuntu-latest
+    runs-on: hraness-cf
     timeout-minutes: 5
     steps:
       - name: Require every blocking job
