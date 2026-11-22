@@ -47,6 +47,31 @@ ra check --url https://example.com
 
 The outside world stays closed against a deployment too. A third-party script that the page depends on has to be in `allow` (or passed with `--allow`), and that is how you learn what the page depends on.
 
+## Product examples in a guide or tour
+
+Render the same component that a customer uses and pass it a small, fictional document. A guide can render that component to static HTML at build time. A working example can open the same document in the editor. Keep the document in one fixture shared by the guide, the editor example and the check.
+
+For example, a scheduling app could keep a meeting called “Walk the garden” in its example week. Its guide renders the week and offers an “Open example week” link. This state checks what the reader sees before and after following that link:
+
+```ts
+"guide-example": {
+  url: "/guides/plan-a-week",
+  views: ["desktop", "phone"],
+  ready: "figure [data-week-view]",
+  steps: async (page) => {
+    const figure = page.locator("figure").filter({ has: page.locator("[data-week-view]") });
+    await figure.getByText("Walk the garden", { exact: true }).waitFor();
+    await figure.getByRole("link", { name: "Open example week" }).click();
+    await page.waitForURL(url => url.pathname === "/calendar/example");
+  },
+  see: ["Walk the garden"],
+},
+```
+
+Use the fixture’s own meeting title in both checks when you wire this into the app. Run `ra check guide-example` against the local build. A tab that opens the wrong week can look perfectly well laid out and still fail this check.
+
+For a native-only view, have the platform’s preview runner open a synthetic document and render the window. For an image-only destination, such as a README, export from that native render or the browser example. Record the fixture, viewport, renderer version and image digest together. Run the export when the inputs change and check the published image against its receipt. ra can check the resulting guide in Chromium; the native runner verifies what the window displays.
+
 ## A browser app with an API
 
 A single-page app, or any page that fetches from the browser.
