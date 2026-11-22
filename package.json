@@ -46,6 +46,7 @@
     }
   },
   "devDependencies": {
+    "@hraness/analytics": "https://github.com/hraness/posthog/releases/download/v1.2.1/hraness-analytics-1.2.1.tgz",
     "@types/node": "24",
     "playwright-core": "1.65.0",
     "typescript": "6.0.3"
