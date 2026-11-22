@@ -18,7 +18,7 @@ ra opens your web app in Chromium, inside a fake world you describe, and tells y
 ra needs Node 22.18 or later, on macOS or Linux. Install it from its GitHub release, then look at a page of your running app:
 
 ```sh
-npm install -D https://github.com/hraness/ra/releases/download/v0.1.7/hraness-ra-0.1.7.tgz playwright-core
+npm install -D https://github.com/hraness/ra/releases/download/v0.1.8/hraness-ra-0.1.8.tgz playwright-core
 npx playwright-core install chromium
 npx ra look http://127.0.0.1:3000/ --at phone
 ```
@@ -222,7 +222,7 @@ pictures: .ra/look/home.desktop.png (first screen), .ra/look/home.desktop.full.p
 ra needs Node 22.18 or later and a Playwright in your project: `playwright-core`, `playwright`, or `@playwright/test`. With Bun, install it like this:
 
 ```sh
-bun add -d https://github.com/hraness/ra/releases/download/v0.1.7/hraness-ra-0.1.7.tgz playwright-core
+bun add -d https://github.com/hraness/ra/releases/download/v0.1.8/hraness-ra-0.1.8.tgz playwright-core
 bunx --no-install playwright-core install chromium
 ```
 
@@ -452,7 +452,7 @@ ra runs on macOS and Linux with playwright-core 1.58 or later. Its browser tests
 Each release on GitHub is immutable, with the packed tarball as its one asset, and GitHub records the asset's SHA-256. To check that a tarball came from a release:
 
 ```sh
-gh release verify-asset v0.1.7 hraness-ra-0.1.7.tgz -R hraness/ra
+gh release verify-asset v0.1.8 hraness-ra-0.1.8.tgz -R hraness/ra
 ```
 
 ra's browser tests run the CLI against [a fixture site](test/fixtures/site). Each of the 19 kinds of finding has a planted case there or in a test's own pages, 12 of them in `broken.html`, and `tricky.html` must stay clean. In a clone, run `bun install` and then `bun run check`, which runs the type check, the unit tests, and the build. The browser tests, `bun run test:browser`, need the Chromium that the pinned playwright-core installs: `node node_modules/playwright-core/cli.js install chromium`.

@@ -71,7 +71,7 @@ jobs:
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('node_modules/playwright-core/browsers.json') }}
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - run: bun run check
-      - run: bun run test:browser
+      - uses: ./.github/actions/check-browsers
       - name: Verify the tree is unchanged
         run: |
           status="$(git status --porcelain --untracked-files=all)"
