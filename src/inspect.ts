@@ -60,6 +60,7 @@ export interface Inspection {
   title: string;
   page: { width: number; height: number };
   viewport: { width: number; height: number };
+  scroll: { left: number; top: number };
   findings: PageFinding[];
   texts: TextSample[];
   boxes: Box[];
@@ -79,7 +80,7 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
   const findings: PageFinding[] = [];
   const notes: string[] = [];
   if (!body) {
-    return { title: doc.title, page: { width: vw, height: vh }, viewport: { width: vw, height: vh }, findings, texts: [], boxes: [], regions: [], notes };
+    return { title: doc.title, page: { width: vw, height: vh }, viewport: { width: vw, height: vh }, scroll: { left: window.scrollX, top: window.scrollY }, findings, texts: [], boxes: [], regions: [], notes };
   }
 
   // With scripts off, a timer or an animation frame never comes back. Layout is
@@ -1516,6 +1517,7 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
     title: doc.title,
     page: { width: Math.max(pageWidth, vw), height: Math.max(root.scrollHeight, body.scrollHeight, vh) },
     viewport: { width: vw, height: vh },
+    scroll: { left: offsetX, top: offsetY },
     findings,
     texts,
     boxes,

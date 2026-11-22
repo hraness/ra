@@ -101,7 +101,7 @@ const TALLEST = 12_000;
  * a <style> tag instead, which a strict Content-Security-Policy blocks: the
  * text would stay, and the policy's console error would read as the page's.
  */
-async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page["screenshot"]>[0]>, limit: number): Promise<Buffer> {
+async function pictureWithoutText(page: Page, take: () => Promise<Buffer>, limit: number): Promise<Buffer> {
   const hidden = await bounded(page.evaluateHandle((css) => {
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
@@ -115,7 +115,7 @@ async function pictureWithoutText(page: Page, shot: NonNullable<Parameters<Page[
     return { sheet, roots };
   }, BARE), limit, "busy", stopped(limit, "hid the text for the picture without it"));
   try {
-    return await pictured(page.screenshot(shot), actionWait(limit));
+    return await take();
   } finally {
     await bounded(
       hidden.evaluate(({ sheet, roots }) => {
@@ -765,10 +765,18 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
           // kept even when the second cannot be taken.
           let failed: unknown;
           const [painted, bare] = await inTouchLayout(page, view.touch, project.timeout, async () => {
-            const first = await pictured(page.screenshot(shot), actionWait(project.timeout));
+            // Capturing beyond the viewport can scroll the document. A sticky or fixed layer
+            // then covers different text in the next picture. Start each at the measured offset.
+            const take = async () => {
+              await bounded(page.evaluate(({ left, top }) => {
+                if (scrollX !== left || scrollY !== top) window.scrollTo({ left, top, behavior: "instant" });
+              }, inspection.scroll), project.timeout, "busy", stopped(project.timeout, "restored the page's place for the picture"));
+              return pictured(page.screenshot(shot), actionWait(project.timeout));
+            };
+            const first = await take();
             const second = inspection.texts.length === 0
               ? null
-              : await pictureWithoutText(page, shot, project.timeout).catch((error: unknown) => {
+              : await pictureWithoutText(page, take, project.timeout).catch((error: unknown) => {
                 failed = error;
                 return null;
               });

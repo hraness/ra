@@ -42,6 +42,22 @@ export default defineConfig({
       views: ["phone"],
       steps: async (page) => {
         await page.getByRole("link", { name: "Jump to where it lands" }).click();
+        // Chromium can move the root scroll after capturing beyond the viewport. Reproduce that
+        // side effect on every browser version, and check where both full-page pictures begin.
+        const screenshot = page.screenshot.bind(page);
+        let firstTop: number | undefined;
+        page.screenshot = async (options) => {
+          if (!options?.fullPage) return screenshot(options);
+          const top = await page.evaluate(() => scrollY);
+          if (firstTop !== undefined && top !== firstTop) throw new Error("The contrast pictures started at different scroll positions.");
+          const picture = await screenshot(options);
+          if (firstTop === undefined) {
+            firstTop = top;
+            if (top === 0) throw new Error("The jump did not scroll the page.");
+            await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+          }
+          return picture;
+        };
       },
     },
     broken: { url: "/broken", note: "One of every problem." },
