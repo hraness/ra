@@ -5,6 +5,7 @@
 // The copy lives in those files. This script places it (see pages.ts), turns code blocks into wells, and points each
 // link at the page that holds its target. It stops on anything it cannot place.
 
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
@@ -476,7 +477,9 @@ const grouped = (html: string) =>
 
 // ---- Pages around the copy
 
-const stamp = createHash("sha256").update(read("site/style.css")).update(read("site/site.js")).digest("hex").slice(0, 10);
+const analytics = execFileSync(process.execPath, ["build", join(repo, "site", "analytics.ts"), "--target=browser", "--format=iife", "--minify"], { encoding: "utf8" });
+const script = `${read("site/site.js")}\n${analytics}`;
+const stamp = createHash("sha256").update(read("site/style.css")).update(script).digest("hex").slice(0, 10);
 
 function header(root: string, docs: boolean): string {
   return `<header class="top"><div class="bar">
@@ -496,6 +499,7 @@ function footer(root: string): string {
 <a href="${github}/releases">Releases</a>
 <a href="${github}/blob/main/LICENSE">MIT licence</a>
 <a href="${root}llms.txt">llms.txt</a>
+<a href="https://hraness.com/privacy/#pageview-counts">Privacy</a>
 </nav>
 <a class="wordmark" href="https://hraness.com">Hraness</a>
 </div></footer>`;
@@ -704,7 +708,8 @@ write(
 
 // ---- Files served as they are
 
-for (const file of ["style.css", "site.js", "favicon.svg"]) copyFileSync(join(repo, "site", file), (mkdirSync(out, { recursive: true }), join(out, file)));
+write("site.js", script);
+for (const file of ["style.css", "favicon.svg"]) copyFileSync(join(repo, "site", file), (mkdirSync(out, { recursive: true }), join(out, file)));
 for (const file of readdirSync(join(repo, "site", "fonts", "funnel-display"))) {
   mkdirSync(join(out, "fonts", "funnel-display"), { recursive: true });
   copyFileSync(join(repo, "site", "fonts", "funnel-display", file), join(out, "fonts", "funnel-display", file));
