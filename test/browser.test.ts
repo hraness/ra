@@ -104,6 +104,8 @@ describe("ra check on the fixture site", () => {
     // back brings out; and the facts above the screen, where a skip link waits until it has focus.
     assert.deepEqual(messages(looks, "docked", "phone"), [], "docked");
     assert.deepEqual(messages(looks, "tricky-after-a-jump", "phone"), [], "tricky after a jump");
+    const jumped = looks.find((look) => look.state === "tricky-after-a-jump" && look.view === "phone")!;
+    assert.ok(jumped.fullPicture !== null && !jumped.notes.some((note) => note.includes("could not be inspected")), jumped.notes.join("\n"));
   });
 
 
