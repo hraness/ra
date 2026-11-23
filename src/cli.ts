@@ -12,6 +12,7 @@ import { AppError } from "./app.ts";
 import { BrowserPolicyError, loadPlaywright, openBrowser } from "./browser.ts";
 import { ConfigError, loadProject, resolveView, type Accept, type Project, type State, type View } from "./config.ts";
 import { compareLooks, type Change } from "./diff.ts";
+import { journeyCommand, stopWalk } from "./journeys.ts";
 import type { Observation } from "./observe.ts";
 import { decodePng, encodePng, frame } from "./png.ts";
 import { checkText, diffText, looksText, receiptLine, statesText } from "./report.ts";
@@ -29,6 +30,8 @@ const HELP = `ra — look at an app's interface the way a person would, and say 
   ra check [state…]                   Every state through every view. Exits 1 when something is wrong.
   ra snap [state…]                    Remember how the states look now.
   ra diff [state…]                    What changed since the snapshot.
+  ra map [journey]                    The project’s user journeys, starting fixtures, actions and expected results.
+  ra walk <journey>                   Replay one journey and keep its evidence.
   ra states                           The states this project names.
   ra doctor                           Which browser ra runs, and whether it starts.
 
@@ -343,6 +346,10 @@ async function main(argv: string[]): Promise<number> {
     print(HELP);
     return 0;
   }
+  if (command === "map" || command === "walk") {
+    if (Object.keys(flags).some((key) => key !== "json")) throw new UsageError(`ra ${command} accepts only a journey name and --json.`);
+    return journeyCommand(command, rest, flags.json === true);
+  }
   const project = await loadProject(process.cwd(), flags.config);
   switch (command) {
     case "look":
@@ -371,6 +378,7 @@ for (const [signal, status] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 12
   process.on(signal, () => {
     if (interrupted) process.exit(status);
     interrupted = true;
+    stopWalk(signal);
     process.exitCode = status;
     setTimeout(() => process.exit(status), 10_000).unref();
     void closeSessions().finally(() => process.exit(status));

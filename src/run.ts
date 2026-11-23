@@ -77,7 +77,7 @@ export async function closeSessions(): Promise<void> {
  * config, or a temporary directory when there is no config. It ignores
  * itself, so nothing in it is committed.
  */
-export function workDirectory(project: Project, name: string): string {
+export function workDirectory(project: Pick<Project, "root" | "file">, name: string): string {
   const base = project.file === null ? join(tmpdir(), "ra") : join(project.root, ".ra");
   if (!existsSync(join(base, ".gitignore"))) {
     mkdirSync(base, { recursive: true });
