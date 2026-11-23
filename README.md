@@ -1,12 +1,12 @@
 # ra
 
-**Catch the UI bugs your agent can't see.**
+**Visual QA for coding agents**
 
 [![Release](https://img.shields.io/github/v/release/hraness/ra?label=release)](https://github.com/hraness/ra/releases/latest)
 [![CI](https://github.com/hraness/ra/actions/workflows/ci.yml/badge.svg)](https://github.com/hraness/ra/actions/workflows/ci.yml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
-ra opens your web app in Chromium, inside a fake world you describe, and tells your coding agent in sentences what a person would find wrong: text cut off, a button that something else covers, grey text too pale to read, or a page that scrolls sideways on a phone. It is UI testing for agents, made to run in the middle of a change.
+ra is an open-source visual QA CLI for coding agents. It checks responsive UI in Chromium and replays web and native user journeys.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/media/ra-flow-dark.png">
@@ -15,7 +15,7 @@ ra opens your web app in Chromium, inside a fake world you describe, and tells y
 
 ## Start
 
-ra needs Node 22.18 or later, on macOS or Linux. Install it from its GitHub release, then look at a page of your running app:
+Run a visual check on a page of your running web app with one command after installing ra from GitHub. You’ll need Node 22.18 or later on macOS or Linux and a Playwright Chromium install.
 
 ```sh
 npm install -D https://github.com/hraness/ra/releases/download/v0.3.0/hraness-ra-0.3.0.tgz playwright-core
@@ -25,11 +25,11 @@ npx ra look http://127.0.0.1:3000/ --at phone
 
 If your project already has `playwright` or `@playwright/test`, leave `playwright-core` out and install the browser with `npx playwright install chromium`.
 
-That first look needs no config. It prints the findings, an outline of the page, a sketch of its layout, and where it saved two pictures. To check every screen of your app in one run, [name its states](#setting-up) and run `ra check`. To have your coding agent run ra by itself, give it [the skill](#for-coding-agents).
+That first look needs no config. It prints the findings, an outline of the page, a sketch of its layout, and where it saved two pictures. [Name your app’s states](#setting-up) to check them together with `ra check`, or [map a user journey](#replay-web-and-native-user-journeys) to review a task from start to finish. [Install the skill](#for-coding-agents) to give your coding agent the same workflow.
 
 ## What it finds
 
-Each finding is one sentence that names the element and, where it can, says by how much.
+ra detects responsive layout bugs such as clipped text, overlap and sideways scrolling, along with low contrast, covered buttons and missing accessible names. Each finding names the element and gives the measurement when it can.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/media/ra-look-dark.png">
@@ -65,7 +65,7 @@ A false alarm sends an agent to change a page that was right, so ra counts one a
 
 ## How it works
 
-ra has two halves, and your app runs unchanged between them. Nothing runs inside your app: there is no SDK, bridge, test build, or fixtures database.
+ra opens the real web app in Chromium and measures what the browser renders. You can give each test state its own fixtures for network replies, storage, cookies and time. The browser reports requests that the fixture rules leave unanswered.
 
 ### The world: the mocking half
 
@@ -101,40 +101,56 @@ What comes out is text first, with two pictures for when the words leave a doubt
 
 ## How it compares
 
-An agent that wants to know whether its UI change worked has three easy options, and each misses something.
+ra combines measured visual findings, repeatable browser states and user journey replays in one CLI. Each browser state can name its own network replies, storage, cookies and clock, so the agent can open a specific error or empty state on demand.
 
-| | Screenshot to a model | Script against the network | Accessibility snapshot | ra |
-| --- | --- | --- | --- | --- |
-| Who decides what is wrong | The model, by eye | Your assertions | The model, from text | Measurements |
-| Contrast, overlap, clipping, covering | Often misjudged | Only what you assert | Not in the tree | Measured and reported |
-| Live services in the loop | Unless you mock them | Unless you mock them | Unless you mock them | Only the hosts you allow by name; any other request is stopped and reported |
-| Empty, failing, and overflowing states | Reached by hand | Mocks you write | Reached by hand | Named once in a config |
+| Tool | What it helps you check |
+| --- | --- |
+| **ra** | Measure overflow, clipping, covered controls and painted contrast. Reproduce named states and replay key tasks with screenshot checkpoints. |
+| [Playwright CLI](https://github.com/microsoft/playwright-cli) and [Playwright MCP](https://github.com/microsoft/playwright-mcp) | Drive the browser interactively, inspect elements and take screenshots. |
+| [Playwright screenshot comparisons](https://playwright.dev/docs/test-snapshots) and [Chromatic](https://www.chromatic.com/docs/visual-tests/) | Flag visual changes between a new screenshot and an approved baseline. |
+| [axe-core](https://github.com/dequelabs/axe-core) | Run a broad set of automated accessibility rules. |
+| [renderlint](https://github.com/ngocanhnckh/renderlint) | Measure rendered layout and contrast, sweep widths, and stress the layout with longer content. |
 
-**A screenshot for a model to judge.** Models are weakest at the measurements that layout bugs come down to. In [UI-Lens](https://openaccess.thecvf.com/content/CVPR2026/papers/Xiang_UI-Lens_Assessing_General_MLLMs_Potential_to_Automate_UI_Display_Quality_CVPR_2026_paper.pdf) (CVPR 2026), nine multimodal models judged screens from 11 mobile apps. On text overflow their accuracy averaged 50.04%, where a coin flip scores 50%, and on container overlap 54.14%. A screenshot also shows only what fits in it. The broken fixture page is 921px wide in a 390px view, so a picture of the screen crops more than half of it, and a picture of a long page is scaled down before the model sees it: [Claude's docs](https://platform.claude.com/docs/en/build-with-claude/vision) cap the long edge at 2,576px, or 1,568px before Claude 4.7, so a page 5,000px tall arrives at half its size or less. ra measures instead: boxes from the layout engine, and contrast from the painted pixels.
+### Does ra need baseline screenshots?
 
-**A Playwright script against the real network.** Browser tests flake far more than most tests. At Google, WebDriver tests were flaky six to eleven times as often as tests overall: 10.45% in Java and 18.72% in Python, against 1.65% ([Google Testing Blog, 2017](https://testing.googleblog.com/2017/04/where-do-our-flaky-tests-come-from.html)). A 2025 study found that three quarters of flaky tests fail together in clusters, with “intermittent networking issues and instabilities in external dependencies as the predominant causes” ([Parry et al.](https://arxiv.org/abs/2504.16777)). Playwright's own advice is “Only test what you control” ([best practices](https://playwright.dev/docs/best-practices)). ra does that for every state, with no test code: its world is fake by default, and a request that nothing in it answers is stopped and reported.
-
-**An accessibility snapshot.** A tree of roles and names is text a model can read, but it leaves out colour, geometry, and stacking order, so it cannot show low contrast, overlap, clipping, or a covered button. On the broken fixture page, those are 29 of the 37 findings. ra prints the same kind of outline and puts measured findings beside it.
+`ra check` measures the current render and checks any assertions you wrote. It works on the first run. For a particular change, `ra snap` and `ra diff` compare local runs and report which elements moved, resized or changed. Journey screenshots show individual checkpoints for review.
 
 ### Other tools
 
-This list dates from November 2026, and each of these tools moves fast.
+These tools can run on the same project. Use Playwright to drive a new path, ra to give the agent repeatable states and measurable findings, and axe-core for broader automated accessibility coverage. For obscure layout bugs, [UI-Lens](https://openaccess.thecvf.com/content/CVPR2026/papers/Xiang_UI-Lens_Assessing_General_MLLMs_Potential_to_Automate_UI_Display_Quality_CVPR_2026_paper.pdf) benchmarks screenshot-based judgments of issues such as text overflow and overlap.
 
-- **Agent browsers**, such as Playwright MCP, Chrome DevTools MCP, and agent-browser, give the agent a page to drive, its accessibility tree, and pictures. Whether the layout is right is left to the model. ra measures the layout and hands the agent a verdict.
-- **Visual regression tools**, such as Chromatic, Percy, Argos, Meticulous, and BackstopJS, compare new pictures with earlier ones. They show every change, wanted or not, and someone decides which changes are bugs. A bug that was there from the start is part of the baseline. `ra check` needs no baseline, and `ra snap` and `ra diff` say in words what moved during one change.
-- **Accessibility engines**, such as axe-core and Lighthouse, check many more rules than ra has. Run one alongside ra, which adds what only the painted page shows: contrast over images and gradients, text that is clipped or spills, and controls that something else covers.
-- **Rendered-UI linters** are the closest. [renderlint](https://github.com/ngocanhnckh/renderlint) shares ra's premise and measures contrast the same way, with more rules, a sweep across widths, stress passes with longer text, and a Stop hook for Claude Code. [Impeccable](https://github.com/pbakaus/impeccable)'s `detect` looks for design “slop” with deterministic rules. ra puts its weight on the world around the page: each state brings its own replies, storage, cookies, and clock, a request that nothing answers is reported, and the same closed world holds when ra looks at a deployment.
+## Replay web and native user journeys
+
+Put `ra.journeys.json` in your project to give an agent a design map of key user flows and a command to replay each one. Each journey lists the user's goal, where to start, what to do, what should happen, and where to find the implementation and tests.
+
+### Can ra test a native app?
+
+For native apps, `ra walk` runs the project’s own UI test or preview runner. It checks the runner’s exit status and keeps the declared screenshot checkpoints and the runner’s log. For web apps, the runner can be an ra browser state, so the replay can also report layout, contrast and interaction findings.
+
+### Try a working walkthrough
+
+This repository has a journey that opens the coding agent guide and follows its link to a worked example. In a clone, install the locked dependencies with `bun install`, then run the example:
+
+```sh
+node node_modules/playwright-core/cli.js install chromium
+bun run site
+node src/cli.ts map find-the-journey-recipe
+node src/cli.ts walk find-the-journey-recipe
+```
+
+Open the checkpoint images in order. `walk.json` records the steps and outcome, and `replay.log` holds the test output. Follow [Map and replay a user journey](docs/recipes.md#map-and-replay-a-user-journey) to add a flow with a meaningful recovery step to your own app. If the app publishes an image from a native preview in its guide, [verify the published image against the capture](docs/recipes.md#product-examples-in-a-guide-or-tour).
 
 ## When to use it
 
-A browser check costs more than a unit test: each look loads the page in a real browser and waits for it to settle, and browser tests flake more than most ([how it compares](#how-it-compares)). So ra is worth running when the answer depends on what a browser paints.
+Use ra when a change needs to be checked against what a user can see or do. Each browser look loads the real page and waits for it to settle.
 
 **Use ra when:**
 
 - **The question is “what does a person see here?”** For example, whether this fits at 320px, whether dark mode keeps the text readable, whether anything covers the button, and whether the long name spills out of its card. Only the layout engine knows, because the answer depends on the fonts, the cascade, and the width of the screen.
 - **The state is expensive to reach by hand.** Examples are an empty inbox, a failed payment, a 3,000-row table, an upstream returning 500, a name 80 characters long, or a clock just before midnight. You name each one once as a URL plus a fake world, and from then on one command reaches it.
 - **A change has a visual blast radius.** Examples are a CSS refactor, a design-token change, or a dependency bump. Run `ra snap`, make the change, then run `ra diff`. It tells you which elements moved, resized, appeared, or vanished, which outline lines changed, and which findings are new.
-- **An agent is changing UI.** It works from text it can act on, and opens a picture only when the text is not enough.
+- **An agent is changing UI.** The agent can investigate precise findings, then open the screenshots to review the design.
+- **A fix spans several steps.** Use a named journey to verify where a form, editor or recovery flow first departs from the expected result.
 
 **Do not use ra for:**
 
@@ -147,7 +163,7 @@ A browser check costs more than a unit test: each look loads the page in a real 
 
 ### Limits
 
-- ra drives Chromium only, on macOS and Linux.
+- Browser checks run in Chromium on macOS and Linux. Native journeys require the toolchain and runner named by the project.
 - It is not a full accessibility audit.
 - Placeholder text is not checked for contrast yet.
 - Contrast is read from painted pixels, so text close to a threshold can pass under one system's font rendering and fall short under another's.
@@ -156,7 +172,7 @@ A browser check costs more than a unit test: each look loads the page in a real 
 
 ## For coding agents
 
-ra comes with a skill, [`skills/ra/SKILL.md`](skills/ra/SKILL.md), that teaches a coding agent when to reach for ra and how to read what it prints. It ships in the package. Copy it to where your agent reads skills; for Claude Code, that is:
+The bundled ra skill shows coding agents how to check the rendered UI, replay user journeys and verify a fix. Copy [`skills/ra/SKILL.md`](skills/ra/SKILL.md) and its directory to where your agent reads skills. For example, Claude Code reads project skills from `.claude/skills/`.
 
 ```sh
 mkdir -p .claude/skills
@@ -279,7 +295,7 @@ Node strips the types from `ra.config.ts`, so relative imports in it need their 
 
 ## In CI
 
-Run `ra check`. It needs no stored baselines, so it only fails when something is wrong now:
+Use `ra check` in CI to catch current visual defects without maintaining baseline screenshots.
 
 ```yaml
 - run: bun install --frozen-lockfile
@@ -324,7 +340,11 @@ browser: Chromium 158.0.8127.18, playwright-core 1.65.0, ~/Library/Caches/ms-pla
 
 `ra check --json` prints every look as data, for tools that want more than the exit code.
 
+To verify a multi-step task in CI, run `ra walk <journey>` on a runner that can run the project’s browser or native fixture. Upload `.ra/walks/` as a build artifact to keep the checkpoint screenshots, assertions and replay logs for review.
+
 ## Reference
+
+Find the command syntax and configuration for browser checks, network fixtures, responsive views and journey replay.
 
 ### Commands
 
@@ -463,9 +483,9 @@ To report a false alarm or a problem ra missed, [open an issue](https://github.c
 
 ## Documentation
 
-- [Recipes](docs/recipes.md): choosing states and views, and setting ra up for each kind of app, from a static site to a desktop app's web surfaces.
-- [Findings](docs/findings.md): how each kind of finding is decided, what it deliberately ignores, and how to accept one.
-- [The skill](skills/ra/SKILL.md): when a coding agent should look, and how it reads what ra prints.
+- [Recipes](docs/recipes.md): configure repeatable browser states, review product examples and replay native or browser journeys.
+- [Findings](docs/findings.md): how ra measures layout, contrast and interaction problems and how to accept a finding.
+- [The skill](skills/ra/SKILL.md): how a coding agent checks a rendered screen, reads findings and replays a user journey.
 - [From Direct to ra](docs/from-direct.md): ra replaces [Direct](https://github.com/hraness/direct), an earlier Hraness framework that also gave each state of an app its own URL in a fixture world. This page says what ra kept, what it dropped, and why.
 
 Everything here is also on [the website](https://hraness.github.io/ra/), with each page in Markdown and an [llms.txt](https://hraness.github.io/ra/llms.txt) for agents.

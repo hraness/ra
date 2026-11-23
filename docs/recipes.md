@@ -1,6 +1,6 @@
 # Recipes
 
-ra works the same way for every kind of app: it reaches the app, names states, closes the world and looks. What changes from one kind to the next is how the app is started and where its outside world lives.
+Set up fixtures for web UI testing, verify examples from the real app, or replay a browser or native user journey.
 
 ## Choosing states and views
 

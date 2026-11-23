@@ -193,6 +193,7 @@ for (const [, link, title, description] of sections.get(documentation)!.html.mat
 interface Built {
   slug: string;
   title: string;
+  searchTitle?: string;
   description: string;
   /** The repository file the copy comes from. */
   source: string;
@@ -227,7 +228,8 @@ function fromReadme(page: Extract<Page, { readme: string }>): Built {
   return {
     slug: page.slug,
     title: section.title,
-    description: page.opens === "definition" || opening.length < 40 ? summary : opening,
+    searchTitle: page.searchTitle,
+    description: opening.length < 40 ? summary : opening,
     source: "README.md",
     anchor: section.id,
     body,
@@ -505,25 +507,31 @@ function footer(root: string): string {
 </div></footer>`;
 }
 
+const canonicalUrl = (path: string) => new URL(path.replace(/index\.html$/, ""), site).href;
+const docPath = (slug: string) => `docs/${slug ? `${slug}/` : ""}index.html`;
+
 function document(options: { path: string; title: string; description: string; root: string; body: string; docs: boolean; markdown?: string }): string {
   const { root } = options;
-  const canonical = options.path === "404.html" ? "" : `\n<link rel="canonical" href="${site}${options.path.replace(/index\.html$/, "")}">`;
+  const indexing = options.path === "404.html"
+    ? '<meta name="robots" content="noindex">'
+    : `<link rel="canonical" href="${canonicalUrl(options.path)}">`;
   return `<!doctype html>
 <html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(options.title)}</title>
-<meta name="description" content="${escape(options.description)}">${canonical}
+<meta name="description" content="${escape(options.description)}">
+${indexing}
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ra">
 <meta property="og:title" content="${escape(options.title)}">
 <meta property="og:description" content="${escape(options.description)}">
-<meta property="og:url" content="${site}${options.path.replace(/index\.html$/, "")}">
+<meta property="og:url" content="${canonicalUrl(options.path)}">
 <meta property="og:image" content="${site}media/social-preview.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
-<meta property="og:image:alt" content="ra checks a website for visual and interaction problems.">
+<meta property="og:image:alt" content="A phone screenshot beside ra findings for a clipped label, a covered button and low contrast.">
 ${options.path === "index.html" ? `<meta property="og:video" content="${site}media/preview.mp4">
 <meta property="og:video:secure_url" content="${site}media/preview.mp4">
 <meta property="og:video:type" content="video/mp4">
@@ -559,7 +567,10 @@ function write(path: string, content: string | Buffer): void {
 
 const rows = landing.map(({ readme: id, show }) => {
   const section = sections.get(id)!;
-  const content = show === "intro" ? intro(section.html) : show === "leads" ? leads(section.html) : section.html;
+  const content = show === "opening" ? blocks(section.html)[0]!
+    : show === "intro" ? intro(section.html)
+    : show === "leads" ? leads(section.html)
+    : section.html;
   return { section, show, content };
 });
 const local = new Set(rows.flatMap(({ section, content }) => [section.id, ...idsIn(content)]));
@@ -578,7 +589,7 @@ write(
 <section class="hero">
 <h1>${tagline}</h1>
 ${definition.replace(/^<p>/, '<p class="lead">')}
-<p class="actions"><a class="key" href="docs/">Read the docs</a><a class="key-label" href="${github}">GitHub</a></p>
+<p class="actions"><a class="key" href="docs/">Get started</a><a class="key-label" href="${github}">GitHub</a></p>
 <p class="meta"><a href="${github}/releases/tag/${version}">Version ${pkg.version}</a> · MIT licence · Node ${node} or later</p>
 ${diagram}
 </section>
@@ -630,11 +641,12 @@ for (const [n, page] of pages.entries()) {
           .map((entry) => `<li><a href="#${encodeURIComponent(entry.id)}">${escape(entry.title)}</a></li>`)
           .join("")}</ul></aside>`
       : "";
+  const path = docPath(page.slug);
   write(
-    `docs/${page.slug ? `${page.slug}/` : ""}index.html`,
+    path,
     document({
-      path: `docs/${page.slug ? `${page.slug}/` : ""}index.html`,
-      title: `${page.title} · ra`,
+      path,
+      title: `${page.searchTitle ?? page.title} · ra`,
       description: page.description,
       root,
       docs: true,
@@ -661,14 +673,23 @@ ${toc}
   write(`docs/${markdownName(page)}`, `# ${page.title}\n\n${absolute(page.markdown, page.source)}\n`);
 }
 
-// ---- For agents: an index of the Markdown pages, and all of them in one file
+// ---- Search and agent discovery
+
+const publicPages = ["index.html", ...pages.map((page) => docPath(page.slug))];
+write("sitemap.xml", [
+  '<?xml version="1.0" encoding="UTF-8"?>',
+  '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+  ...publicPages.map((path) => `  <url><loc>${escape(canonicalUrl(path))}</loc></url>`),
+  "</urlset>",
+  "",
+].join("\n"));
 
 const llms = [
   "# ra",
   "",
   `> ${summary}`,
   "",
-  `${tagline} Each page below is Markdown, and [llms-full.txt](${site}llms-full.txt) holds them all in one file.`,
+  `Use the [visual QA quickstart](${site}docs/start.md) for a first browser check or the [user journey guide](${site}docs/user-journeys.md) for a web or native replay. Each page below is Markdown. [llms-full.txt](${site}llms-full.txt) holds the full documentation.`,
   ...tree.flatMap((group) => [
     "",
     `## ${group.label}`,

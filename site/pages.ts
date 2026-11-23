@@ -6,15 +6,15 @@
  * A docs page: a README `##` section, named by its heading's anchor, or a Markdown file in the repository. A README
  * page can open with the README's definition, the paragraph under its title, or with the picture under that.
  */
-export type Page = { slug: string; readme: string; opens?: "definition" | "picture" } | { slug: string; file: string };
+export type Page = { slug: string; readme: string; opens?: "definition" | "picture"; searchTitle?: string } | { slug: string; file: string };
 
 /** The sidebar, in reading order. Each slug is the page's address under docs/; the empty slug is docs/ itself. */
 export const groups: { label: string; pages: Page[] }[] = [
   {
     label: "Overview",
     pages: [
-      { slug: "", readme: "start", opens: "definition" },
-      { slug: "what-it-finds", readme: "what-it-finds" },
+      { slug: "", readme: "start", opens: "definition", searchTitle: "Get started with visual QA" },
+      { slug: "what-it-finds", readme: "what-it-finds", searchTitle: "Responsive layout and contrast checks" },
       { slug: "how-it-works", readme: "how-it-works", opens: "picture" },
       { slug: "when-to-use-it", readme: "when-to-use-it" },
     ],
@@ -23,8 +23,9 @@ export const groups: { label: string; pages: Page[] }[] = [
     label: "Guides",
     pages: [
       { slug: "setting-up", readme: "setting-up" },
-      { slug: "for-coding-agents", readme: "for-coding-agents" },
-      { slug: "in-ci", readme: "in-ci" },
+      { slug: "for-coding-agents", readme: "for-coding-agents", searchTitle: "Set up visual QA for coding agents" },
+      { slug: "user-journeys", readme: "replay-web-and-native-user-journeys" },
+      { slug: "in-ci", readme: "in-ci", searchTitle: "UI testing in CI" },
       { slug: "recipes", file: "docs/recipes.md" },
     ],
   },
@@ -39,7 +40,7 @@ export const groups: { label: string; pages: Page[] }[] = [
   {
     label: "Background",
     pages: [
-      { slug: "how-it-compares", readme: "how-it-compares" },
+      { slug: "how-it-compares", readme: "how-it-compares", searchTitle: "Compare visual QA and screenshot testing tools" },
       { slug: "design-decisions", readme: "design-decisions" },
       { slug: "verification", readme: "verification" },
       { slug: "from-direct", file: "docs/from-direct.md" },
@@ -56,13 +57,14 @@ export const skipped = ["documentation", "licence"];
 /**
  * The landing page after its first screen, in order. `whole` shows the section as it is. `intro` shows its opening
  * paragraphs, then each `###` heading with its first paragraph and the list or table that paragraph introduces.
- * `leads` shows its opening paragraph and only the bold lead of each item in its lists.
+ * `opening` shows the first paragraph. `leads` shows the opening paragraph and the bold leads from its lists.
  */
-export const landing: { readme: string; show: "whole" | "intro" | "leads" }[] = [
-  { readme: "how-it-compares", show: "whole" },
+export const landing: { readme: string; show: "whole" | "intro" | "leads" | "opening" }[] = [
   { readme: "what-it-finds", show: "whole" },
+  { readme: "replay-web-and-native-user-journeys", show: "intro" },
+  { readme: "for-coding-agents", show: "opening" },
   { readme: "how-it-works", show: "intro" },
-  { readme: "for-coding-agents", show: "whole" },
+  { readme: "how-it-compares", show: "opening" },
   { readme: "when-to-use-it", show: "leads" },
   { readme: "start", show: "whole" },
 ];
