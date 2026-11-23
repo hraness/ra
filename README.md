@@ -163,7 +163,9 @@ mkdir -p .claude/skills
 cp -R node_modules/@hraness/ra/skills/ra .claude/skills/
 ```
 
-The loop:
+When a project has `ra.journeys.json`, start with `ra map`. Choose the goal a person wants to achieve and run `ra walk <journey>`. Each walk gives you the ordered actions, their expected results, the runner output and any checkpoint images. Compare those images in order when reviewing the design. A native project can run its own test harness with the same two commands. To add the first journey to a project, follow [Map and replay a user journey](docs/recipes.md#map-and-replay-a-user-journey).
+
+For browser states:
 
 1. Run `ra look <state> --at phone`, read the findings and the outline, and fix what is wrong.
 2. Run `ra look` again to confirm. Run `ra check` before handing off.
