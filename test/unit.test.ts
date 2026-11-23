@@ -14,6 +14,7 @@ import { ConfigError, loadProject, mergeWorlds, readConfig, resolveView } from "
 import { contrastRatio, findLowContrast, neededRatio } from "../src/contrast.ts";
 import { boxChanges, lineChanges } from "../src/diff.ts";
 import type { Box } from "../src/inspect.ts";
+import { verifyNativeFigure } from "../src/native.ts";
 import { applyAccepts, type Finding, type Observation } from "../src/observe.ts";
 import { outlineOf } from "../src/outline.ts";
 import { comparePixels, decodePng, encodePng, frame, type Image } from "../src/png.ts";
@@ -23,6 +24,31 @@ import { allowsHost, closedWorldSwitches, findReply, isAppElsewhere, isOwnAddres
 
 const scratch = mkdtempSync(join(tmpdir(), "ra-unit-"));
 after(() => rmSync(scratch, { recursive: true, force: true }));
+
+describe("a published native scene", () => {
+  const scene = {
+    name: "Week view", src: "/week.webp", alt: "Planning at 10",
+    sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  };
+  const readAsset = (src: string) => {
+    assert.equal(src, "/week.webp");
+    return Buffer.from("abc");
+  };
+  test("checks the selected image bytes and the captured description", async () => {
+    await verifyNativeFigure("/guide", scene, { src: "/week.webp", alt: "Planning at 10" }, readAsset);
+    await verifyNativeFigure("/guide", { ...scene, alt: undefined }, { src: "/week.webp" }, readAsset);
+  });
+  test("identifies a missing or swapped figure before reading its source", async () => {
+    await assert.rejects(verifyNativeFigure("/guide", scene, null, readAsset), /\/guide \(Week view\).*missing/u);
+    await assert.rejects(verifyNativeFigure("/guide", scene, { src: "/day.webp" }, readAsset), /expected image "\/week.webp", found "\/day.webp"/u);
+  });
+  test("rejects stale guide facts, substituted bytes and incomplete capture records", async () => {
+    await assert.rejects(verifyNativeFigure("/guide", scene, { ...scene, alt: "Planning at 12" }, readAsset), /Planning at 10.*Planning at 12/u);
+    await assert.rejects(verifyNativeFigure("/guide", scene, scene, () => Buffer.from("abd")), /has SHA-256.*expected/u);
+    await assert.rejects(verifyNativeFigure("/guide", { ...scene, sha256: "" }, scene, readAsset), /capture needs/u);
+    await assert.rejects(verifyNativeFigure("/guide", scene, scene, () => { throw Error("ENOENT"); }), /could not read.*week.webp/u);
+  });
+});
 
 describe("browser launch policy", () => {
   test("merges every --disable-features into one switch with the required names", () => {

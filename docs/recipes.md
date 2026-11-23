@@ -70,7 +70,27 @@ For example, a scheduling app could keep a meeting called “Walk the garden” 
 
 Use the fixture’s own meeting title in both checks when you wire this into the app. Run `ra check guide-example` against the local build. A tab that opens the wrong week can look perfectly well laid out and still fail this check.
 
-For a native-only view, have the platform’s preview runner open a synthetic document and render the window. For an image-only destination, such as a README, export from that native render or the browser example. Record the fixture, viewport, renderer version and image digest together. Run the export when the inputs change and check the published image against its receipt. ra can check the resulting guide in Chromium; the native runner verifies what the window displays.
+For a native view, have the platform’s preview runner open the example document and record the facts displayed in the window as it captures the image. Keep the fixture, viewport, renderer version and SHA-256 of the **published image format** with the capture. If the site converts a PNG to WebP, record the WebP digest after conversion.
+
+Use `@hraness/ra/native` in a Node build check to verify the figure a reader gets. This entry point runs with Node alone. Select the figure by its place in the guide so a different image in that same place is observable.
+
+```ts
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { verifyNativeFigure } from "@hraness/ra/native";
+
+// capture comes from the native runner. guide is the parsed, built HTML.
+const img = guide.querySelector("article figure img");
+await verifyNativeFigure("/guides/plan-a-week", {
+  name: "Week view",
+  src: "/images/week.webp",
+  sha256: capture.webpSha256,
+  alt: `${capture.meeting.title} at ${capture.meeting.time}`,
+}, img && { src: img.getAttribute("src"), alt: img.getAttribute("alt") },
+  src => readFile(join("dist", src)));
+```
+
+The check throws an error naming the page and scene when the figure is missing, its source or bytes differ, or its alt text disagrees with the captured facts. Omit `alt` for a release that records image digests alone.
 
 ## A browser app with an API
 
