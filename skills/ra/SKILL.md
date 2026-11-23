@@ -18,6 +18,8 @@ Do not use ra to test logic, to restate the implementation, or to check that liv
 
 ## The loop
 
+When the project has `ra.journeys.json`, start with `ra map`. Choose the user's goal, read its starting fixture and expected results, then run `ra walk <journey>` in the project's test environment. Open the checkpoint images in order to review the design. A replay failure identifies behavior to investigate in the listed sources. `ra map <journey> --json` and `ra walk <journey> --json` provide the same map and result for tools.
+
 1. `ra states` lists the states the project names. Without a config, `ra look http://127.0.0.1:3000/path` works on any running app.
 2. `ra look <state> --at phone` shows one state. Read the findings, fix them, and look again. Use `--at phone,desktop` or `--at all` when more views matter.
 3. Before a change whose reach you cannot see, run `ra snap`. After it, run `ra diff`. It says which elements moved, resized, appeared or vanished, which outline lines changed, and which findings are new.

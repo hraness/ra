@@ -203,3 +203,31 @@ ra check --url https://staging.example.com
 The deployment answers for itself: no reply rule stands in for it, though `block` still applies to its paths. Outside hosts stay closed unless allowed.
 
 This answers "does the deployment look right?". It does not answer "do the services behind it work?": that is what monitoring is for.
+
+## Map and replay a user journey
+
+An agent can start with a user's goal, follow the controls in order and compare what appears with the expected result. Put `ra.journeys.json` at the project root. Give each journey a small starting fixture, the user's actions and the visible results, the files that implement or check the flow, and one command that replays the whole sequence. Include a recovery or cancellation path where it matters.
+
+```json
+{
+  "version": 1,
+  "journeys": {
+    "reschedule-meeting": {
+      "title": "Move a meeting and undo the change",
+      "start": "Open the example week with Walk the garden on Tuesday at 10.",
+      "steps": [
+        { "action": "Move Walk the garden to Wednesday at 11.", "expect": "The meeting appears on Wednesday at 11.", "image": "moved.png" },
+        { "action": "Choose Undo.", "expect": "The meeting returns to Tuesday at 10.", "image": "restored.png" }
+      ],
+      "run": ["node", "tests/reschedule.mjs"],
+      "sources": ["tests/reschedule.mjs"]
+    }
+  }
+}
+```
+
+Run `ra map` to read every journey or `ra map reschedule-meeting --json` for one structured walkthrough. Reading the map validates its source paths. `ra walk reschedule-meeting` starts the project's listed command once from the map's directory. Set `cwd` to a project-relative directory if the runner lives in a subproject. A command starting with `ra` uses the same CLI, for example `["ra", "check", "reschedule-meeting"]` for a browser state whose steps perform the entire interaction.
+
+The replay owns its fixture and assertions. A browser journey can use the project's ra state, and a native journey can use the platform's fixture renderer or UI tests. At each illustrated checkpoint, have the replay write its image under the fresh directory in `RA_WALK_DIR`. ra checks every declared image exists and keeps the walkthrough and outcome in `walk.json` there. A failed assertion or missing image fails the walk. Inspect the images in order when reviewing the design. Use `ra walk reschedule-meeting --json` to get the evidence directory and outcome as data. Run walks from trusted project checkouts.
+
+The run directory also keeps the runner’s output in `replay.log`. When a walk fails, read the assertion there and inspect the last image it produced.
