@@ -6,7 +6,7 @@
 [![CI](https://github.com/hraness/ra/actions/workflows/ci.yml/badge.svg)](https://github.com/hraness/ra/actions/workflows/ci.yml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
-ra is an open-source visual QA CLI for coding agents. It checks responsive UI in Chromium and replays web and native user journeys.
+ra is an open-source CLI that finds layout and contrast bugs in Chromium. It replays web and native user journeys with screenshots and test logs.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/media/ra-flow-dark.png">

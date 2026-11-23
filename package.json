@@ -1,7 +1,7 @@
 {
   "name": "@hraness/ra",
   "version": "0.3.0",
-  "description": "ra is an open-source visual QA CLI for coding agents. It checks responsive UI in Chromium and replays web and native user journeys.",
+  "description": "ra is an open-source CLI that finds layout and contrast bugs in Chromium. It replays web and native user journeys with screenshots and test logs.",
   "license": "MIT",
   "type": "module",
   "repository": {
