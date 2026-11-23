@@ -1,7 +1,7 @@
 {
   "name": "@hraness/ra",
   "version": "0.3.0",
-  "description": "ra opens your web app in Chromium, inside a fake world you describe, and tells your coding agent in sentences what a person would find wrong.",
+  "description": "ra is an open-source CLI that finds layout and contrast bugs in Chromium. It replays web and native user journeys with screenshots and test logs.",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -10,7 +10,7 @@
   },
   "homepage": "https://hraness.github.io/ra/",
   "bugs": "https://github.com/hraness/ra/issues",
-  "keywords": ["ui-testing", "coding-agents", "playwright", "chromium", "accessibility", "layout", "contrast", "claude-code", "agent-skills", "cli"],
+  "keywords": ["visual-qa", "ui-testing", "visual-testing", "design-qa", "coding-agents", "playwright", "chromium", "responsive-testing", "layout-testing", "accessibility-testing", "color-contrast", "network-mocking", "user-journeys", "agent-skills", "cli"],
   "bin": {
     "ra": "./dist/cli.js"
   },

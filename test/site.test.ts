@@ -109,10 +109,30 @@ describe("site", () => {
     assert.equal(plain(/<h1>([\s\S]*?)<\/h1>/.exec(home)![1]!), tagline);
     assert.equal(plain(/<p class="lead">([\s\S]*?)<\/p>/.exec(home)![1]!), definition);
     assert.equal(decode(/<meta name="description" content="([^"]*)">/.exec(home)![1]!), definition);
-    assert.ok(
-      definition.startsWith(pkg.description.replace(/\.$/, "")),
-      "package.json's description should be the README's definition up to its colon",
-    );
+    assert.equal(pkg.description, definition);
+  });
+
+  test("the sitemap lists the canonical HTML pages, with their own search metadata", () => {
+    const sitemap = read(join(out, "sitemap.xml"));
+    const listed = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => decode(match[1]!));
+    const publicPages: string[] = [];
+    const titles = new Set<string>();
+    for (const [file, html] of pages) {
+      if (name(file) === "404.html") {
+        assert.match(html, /<meta name="robots" content="noindex">/);
+        assert.doesNotMatch(html, /rel="canonical"/);
+        continue;
+      }
+      const url = new URL(name(file).replace(/index\.html$/, ""), site).href;
+      const canonical = /<link rel="canonical" href="([^"]+)"/.exec(html)?.[1];
+      const title = /<title>([^<]+)<\/title>/.exec(html)?.[1];
+      const description = /<meta name="description" content="([^"]+)"/.exec(html)?.[1];
+      assert.equal(canonical, url);
+      assert.ok(title && description && !titles.has(title), `${name(file)} needs a distinct title and a description`);
+      titles.add(title);
+      publicPages.push(url);
+    }
+    assert.deepEqual(listed.sort(), publicPages.sort());
   });
 
   test("llms.txt lists every docs page's Markdown copy, and the full text and the 404 page exist", () => {

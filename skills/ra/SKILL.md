@@ -1,11 +1,11 @@
 ---
 name: ra
-description: Look at a web app's interface in a real browser, inside a fake and closed world, and read in words what is wrong with it. Use when changing anything a person sees (CSS, layout, components, copy that may not fit), when asked whether a page works on a phone or in dark mode, when reproducing a visual bug, or before handing off a UI change. Not for logic that a unit test can prove.
+description: Run visual QA on rendered web UI and replay web or native user journeys. Use for layout, contrast, clipping, responsive views, dark mode, reproducible visual bugs, and checking a user flow before handing off a UI change.
 ---
 
 # ra
 
-ra runs the app in Chromium and answers everything outside the app from a world you describe: API replies, blocked hosts and stand-in servers. It then prints what a person would meet on the page: what is wrong, what a screen reader would hear and how the page is laid out. Pictures are written to disk, and you open one only when the words leave a doubt.
+ra checks rendered web UI in Chromium and reports layout, contrast and interaction findings in words. A fixture can set the network replies, storage, cookies and clock. Browser checks save screenshots, and journey replays use the project’s test runner and keep its checkpoints for review.
 
 ## When to reach for it
 
@@ -13,6 +13,7 @@ ra runs the app in Chromium and answers everything outside the app from a world 
 - A state is hard to reach by hand: empty, failed, overflowing, signed out, or a date at midnight.
 - A change could reach further than the place you edited, such as a shared component, a design token or a global style.
 - Someone asks whether it works on a phone, or whether it can be read in dark mode.
+- You need to review a user flow in order, including a recovery or cancellation path.
 
 Do not use ra to test logic, to restate the implementation, or to check that live services work.
 

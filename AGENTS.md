@@ -1,6 +1,6 @@
 # ra
 
-ra looks at a web app's interface in a real browser inside a fake world, and says in words what is wrong. The README explains what it is for; `docs/` has the reference.
+ra measures the rendered web UI in Chromium with controlled fixtures and replays web and native journeys through project test runners. The README introduces it and `docs/` has the reference.
 
 ## Setup and checks
 
@@ -39,8 +39,8 @@ From the repository root, `node src/cli.ts map` lists each goal, starting fixtur
 
 - The website, https://hraness.github.io/ra/, is built from the README, `docs/` and `skills/ra/SKILL.md`, and its copy lives there. `site/` holds the layout, the styles and the site's own few words: the header, the footer and the keys.
 - `site/pages.ts` places each README section on a page, on the landing page, or nowhere. The build stops on a section it does not place, so a pull request that renames or adds a README heading changes `site/pages.ts` too.
-- The README's first lines are the site's first screen. The line in bold is the tagline, the landing page's heading. The paragraph under the badges is the definition: the landing page's lead and description, and llms.txt's summary. `package.json`'s description is the definition up to its colon. `test/site.test.ts` checks all three.
-- A page's description is the first sentence of its section, so each section opens with a sentence that stands alone.
+- The README's first lines are the site's first screen. The line in bold is the tagline, the landing page's heading. The paragraph under the badges is the definition: the landing page's lead and description, and llms.txt's summary. `package.json` uses the same description. `test/site.test.ts` checks all three.
+- Each docs page opens with a sentence that works as its search description. The sitemap lists the canonical HTML pages and `llms.txt` lists their Markdown copies.
 - The README's first picture is drawn on the site from `site/figures/flow.html`, which its PNGs are also rendered from. After changing the figure, run `bun run figures` (on a shared machine, through its scheduler's browser lane) and commit the PNGs it writes.
 - ra is always written in lower case, so the site never sets copy in capitals; capitals are for its own words. The site test checks this.
 - `bun run site` builds into `site/dist`. `bun run test:site` builds again into a temporary folder and checks every link, fragment, heading and Markdown copy, and `bun run check` runs it. `cd site && node ../src/cli.ts check` looks at every page with ra itself, through the browser lane on a shared machine.
