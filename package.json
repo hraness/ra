@@ -1,6 +1,6 @@
 {
   "name": "@hraness/ra",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "ra opens your web app in Chromium, inside a fake world you describe, and tells your coding agent in sentences what a person would find wrong.",
   "license": "MIT",
   "type": "module",
@@ -18,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./native": {
+      "types": "./dist/native.d.ts",
+      "default": "./dist/native.js"
     },
     "./package.json": "./package.json"
   },
