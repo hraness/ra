@@ -1,7 +1,7 @@
 {
   "name": "@hraness/ra",
   "version": "0.3.0",
-  "description": "ra is an open-source CLI that finds layout and contrast bugs in Chromium. It replays web and native user journeys with screenshots and test logs.",
+  "description": "For web pages, ra uses Chromium to measure layout and contrast. For native apps, ra walk runs your project’s UI tests and keeps their screenshots and logs.",
   "license": "MIT",
   "type": "module",
   "repository": {

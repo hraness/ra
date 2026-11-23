@@ -589,7 +589,7 @@ write(
 <section class="hero">
 <h1>${tagline}</h1>
 ${definition.replace(/^<p>/, '<p class="lead">')}
-<p class="actions"><a class="key" href="docs/">Get started</a><a class="key-label" href="${github}">GitHub</a></p>
+<p class="actions"><a class="key" href="docs/">Get started</a><a class="key-label" href="docs/user-journeys/#can-ra-test-a-native-app">Native app guide</a></p>
 <p class="meta"><a href="${github}/releases/tag/${version}">Version ${pkg.version}</a> · MIT licence · Node ${node} or later</p>
 ${diagram}
 </section>

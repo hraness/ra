@@ -6,11 +6,11 @@
 [![CI](https://github.com/hraness/ra/actions/workflows/ci.yml/badge.svg)](https://github.com/hraness/ra/actions/workflows/ci.yml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
-ra is an open-source CLI that finds layout and contrast bugs in Chromium. It replays web and native user journeys with screenshots and test logs.
+For web pages, ra uses Chromium to measure layout and contrast. For native apps, `ra walk` runs your project’s UI tests and keeps their screenshots and logs.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/media/ra-flow-dark.png">
-  <img src=".github/media/ra-flow.png" width="830" alt="How ra works. Your app runs unchanged in a real browser, at each screen size you list. Its requests go to the world, the mocking half, where the replies you write answer and anything else is stopped. What the app drew goes to the look, the perception half, which measures the page with no AI model. Your agent reads one sentence per problem, such as: “Subscribe to updates” is cut off on the right by its own box (84px hidden).">
+  <img src=".github/media/ra-flow.png" width="830" alt="How ra checks a web page. Your web app runs in Chromium at each screen size you list. Its requests go to the world, the mocking half, where the replies you write answer and anything else is stopped. What the app drew goes to the look, the perception half, which measures the page with no AI model. Your agent reads one sentence per problem, such as: “Subscribe to updates” is cut off on the right by its own box (84px hidden).">
 </picture>
 
 ## Start
@@ -125,7 +125,9 @@ Put `ra.journeys.json` in your project to give an agent a design map of key user
 
 ### Can ra test a native app?
 
-For native apps, `ra walk` runs the project’s own UI test or preview runner. It checks the runner’s exit status and keeps the declared screenshot checkpoints and the runner’s log. For web apps, the runner can be an ra browser state, so the replay can also report layout, contrast and interaction findings.
+Yes. On macOS, for example, `ra walk` can run a Swift test on a Mac. The Swift test opens the native window, drives the controls, checks the result and captures screenshots. ra starts that test, checks its exit status and the declared images, then keeps the screenshots and test log. The native test owns the assertions. Use the screenshots to review what the user sees.
+
+A web journey can use `ra check` as its runner. Chromium renders the page and ra also measures layout and contrast.
 
 ### Try a working walkthrough
 
