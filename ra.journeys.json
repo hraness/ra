@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "journeys": {
+    "find-the-journey-recipe": {
+      "title": "Find how to give an agent a user journey",
+      "start": "Run bun install and bun run site. Open the locally built For coding agents guide.",
+      "steps": [
+        {
+          "action": "Find the instructions for reviewing a user journey.",
+          "expect": "The guide gives the discovery and replay commands and links to a worked example.",
+          "image": "01-agent-guide.png"
+        },
+        {
+          "action": "Follow the recipe link.",
+          "expect": "The journey recipe opens at its heading and shows the example meeting, actions, expectations and replay command.",
+          "image": "02-recipe.png"
+        }
+      ],
+      "run": [
+        "ra",
+        "check",
+        "find-the-journey-recipe",
+        "--at",
+        "desktop"
+      ],
+      "sources": [
+        "README.md",
+        "docs/recipes.md",
+        "site/ra.config.ts"
+      ],
+      "cwd": "site"
+    }
+  }
+}

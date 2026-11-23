@@ -10,6 +10,10 @@ ra looks at a web app's interface in a real browser inside a fake world, and say
 - `bun run test:browser` runs the real CLI against `test/fixtures/site` in a real browser. It needs Chromium for the pinned playwright-core: `node node_modules/playwright-core/cli.js install chromium`. Run it after any change to `src/`. On a shared machine, run it through the machine's scheduler, not alongside other browser work.
 - `cd test/fixtures/site && node ../../../src/cli.ts look broken --at phone` shows what the fixture prints.
 
+## User journeys
+
+From the repository root, `node src/cli.ts map` lists each goal, starting fixture, action and observable result. Build the site with `bun run site`, then run `node src/cli.ts walk find-the-journey-recipe` in the shared browser lane. Inspect its checkpoint images when reviewing the documentation experience. For another project, put its own fixture and replay command in a root `ra.journeys.json` and tell agents how to find the map in that project’s instructions.
+
 ## Code
 
 - `src/cli.ts`: the command, its help and its exit codes.
