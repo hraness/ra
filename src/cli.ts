@@ -42,7 +42,7 @@ Everywhere:
   --config <file>     Use this config instead of the nearest ra.config.ts.
   --jobs <n>          How many looks run at once. Default 4; 1 when upstream stand-ins are in use.
 
-Views: desktop, tablet, phone, narrow, or a size such as 1024x768. Add .dark, .touch or .motion.
+Views: desktop, tablet, phone, narrow, or a size such as 1024x768. Add .dark, .touch, .motion or .forced-colors.
 `;
 
 /** The command was used wrongly. */

@@ -76,6 +76,10 @@ On touch views, a control is smaller than `tapTarget` (24px by default) **and** 
 - Left alone: a small control with room around it, and a link inside a sentence, which is as tall as its line, even in a span of its own.
 - A control's area takes in what it holds, such as a transparent input laid over a small label, since a tap there reaches it. It does not take in text kept for screen readers, the part a box inside it hides, or what floats clear of it, such as a tooltip. A control on a fixed layer moved off the screen, such as a skip link until it has focus, is not a target, unless a scroller on that layer, such as a full-screen menu, can bring it onto the screen.
 
+### `combobox`
+
+An expanded listbox picker refers to a missing or inaccessible popup. If it identifies a highlighted option, that option must belong to the popup and be exposed to assistive technology. The check follows portalled lists and groups linked with `aria-owns`. A picker can open with empty results or with no highlighted option. Add a state that leaves the list open after typing and pressing an arrow key to check keyboard focus after filtering.
+
 ### `no-name`
 
 A control has no accessible name, or an image has no `alt` attribute.

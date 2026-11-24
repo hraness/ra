@@ -235,6 +235,16 @@
       <p class="kept">A note keeps the spaces it was     typed with, and the ones at the end of a line hang.</p>
       <p class="kept clipped">A note keeps the spaces it was     typed with, in a box that hides its overflow.</p>
 
+      <h2>Choosing from a keyboard</h2>
+      <p><label>Favorite instrument <input role="combobox" aria-expanded="true" aria-controls="instrument-list" aria-activedescendant="chosen-cello"></label></p>
+      <div role="listbox" id="instrument-list" aria-label="Instruments"><div role="group" aria-label="Strings" aria-owns="chosen-cello"></div></div>
+      <div role="option" id="chosen-cello">Cello</div>
+      <p><label>Empty suggestions <input role="combobox" aria-expanded="true" aria-controls="waiting-list"></label></p>
+      <div role="listbox" id="waiting-list" aria-label="Suggestions"></div>
+      <p><label>Closed suggestions <input role="combobox" aria-expanded="false" aria-controls="unmounted-list"></label></p>
+      <p><label>Choose a date <input role="combobox" aria-haspopup="dialog" aria-expanded="true" aria-controls="calendar"></label></p>
+      <div role="dialog" id="calendar" aria-label="Calendar">November</div>
+      <button class="forced-colors-only" type="button">System color control</button>
     </main>
     <nav class="recent" aria-label="Recent pages">
       <a href="/">The home page, which has nothing wrong with it</a>
