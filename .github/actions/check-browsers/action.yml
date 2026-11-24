@@ -4,7 +4,7 @@ runs:
   using: composite
   steps:
     # Both Node's readiness probe and Chromium use the deployment fixture.
-    # Cloudflare supplies a read-only hosts mount, so bind this job's copy
+    # Some runners supply a read-only hosts mount, so bind this job's copy
     # only inside an unprivileged namespace; retain all browser assertions.
     - name: Check browsers with local deployment names
       if: runner.os == 'Linux'
@@ -12,6 +12,10 @@ runs:
       run: |
         sudo apt-get update
         sudo apt-get install -y bubblewrap
+        # GitHub-hosted Ubuntu 24.04 lets AppArmor refuse unprivileged user namespaces, which bwrap needs.
+        if [[ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" == 1 ]]; then
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        fi
         cp /etc/hosts "$RUNNER_TEMP/ra-hosts"
         printf '\n127.0.0.1 app.localhost www.app.localhost\n' >> "$RUNNER_TEMP/ra-hosts"
         namespace=(bwrap --bind / / --proc /proc --dev /dev --ro-bind "$RUNNER_TEMP/ra-hosts" /etc/hosts)
