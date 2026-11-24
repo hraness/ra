@@ -193,6 +193,8 @@ export interface View {
   touch: boolean;
   scale: number;
   scheme: "light" | "dark";
+  /** Ask Chromium to use the reader’s system colors. */
+  forcedColors?: boolean;
   /** Whether animations are left running. */
   motion: boolean;
 }
@@ -236,7 +238,7 @@ export const VIEW_NAMES: readonly string[] = Object.keys(BUILT_IN);
 
 /**
  * Reads a view name: a built-in or project view, or a size like `1024x768`,
- * followed by any of `.dark`, `.light`, `.touch`, `.motion`.
+ * followed by any of `.dark`, `.light`, `.touch`, `.motion`, `.forced-colors`.
  */
 export function resolveView(name: string, custom: readonly ViewSpec[] = []): View {
   const [base = "", ...modifiers] = name.split(".");
@@ -262,7 +264,8 @@ export function resolveView(name: string, custom: readonly ViewSpec[] = []): Vie
     if (modifier === "dark" || modifier === "light") view.scheme = modifier;
     else if (modifier === "touch") view.touch = true;
     else if (modifier === "motion") view.motion = true;
-    else throw new ConfigError(`Unknown view modifier ".${modifier}" in "${name}". Use .dark, .light, .touch or .motion.`);
+    else if (modifier === "forced-colors") view.forcedColors = true;
+    else throw new ConfigError(`Unknown view modifier ".${modifier}" in "${name}". Use .dark, .light, .touch, .motion or .forced-colors.`);
   }
   return view;
 }

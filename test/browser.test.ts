@@ -92,6 +92,21 @@ describe("ra check on the fixture site", () => {
     }
   });
 
+  test("connects an expanded combobox to its list and its highlighted option", () => {
+    const faults = looks.find((look) => look.state === "broken" && look.view === "desktop")!.findings.filter((f) => f.kind === "combobox");
+    assert.equal(faults.length, 5, JSON.stringify(faults));
+    for (const label of ["Missing popup", "Hidden popup", "Old keyboard choice", "Other list's choice", "Hidden keyboard choice"]) {
+      assert.ok(faults.some((fault) => fault.message.includes(label)), label);
+    }
+  });
+
+  test("uses the browser's system colors for a forced-colors view", async () => {
+    const run = await ra(["look", "tricky", "--at", "desktop.forced-colors", "--json"]);
+    const look = (JSON.parse(run.out) as { looks: Observation[] }).looks[0]!;
+    assert.ok(look.boxes.some((box) => box.key === 'button "System color control"'));
+    assert.ok(!looks.find((candidate) => candidate.state === "tricky" && candidate.view === "desktop")!.boxes.some((box) => box.key === 'button "System color control"'));
+  });
+
   test("measures what is there: the rest of a line an ellipsis hides, a tap that reaches an input over a small label, links in a sentence's spans, links out of sight in a box, and a line that a scrolling panel runs past the screen", () => {
     // Each is planted in tricky, and each was reported once.
     const look = looks.find((candidate) => candidate.state === "tricky" && candidate.view === "phone")!;

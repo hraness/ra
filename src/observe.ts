@@ -372,6 +372,7 @@ export async function observe(options: ObserveOptions): Promise<Observation> {
     isMobile: view.touch,
     hasTouch: view.touch,
     colorScheme: view.scheme,
+    forcedColors: view.forcedColors ? "active" : "none",
     reducedMotion: view.motion ? "no-preference" : "reduce",
     serviceWorkers: "block",
     javaScriptEnabled: scripts,

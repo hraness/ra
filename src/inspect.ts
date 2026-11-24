@@ -1096,6 +1096,55 @@ export async function inspectPage(options: InspectOptions): Promise<Inspection> 
 
   const controls = Array.from(doc.querySelectorAll(CONTROLS)).filter((el) => usable(el) && subject(el));
 
+  // An editable picker often keeps DOM focus in its input while its list lives
+  // in a portal. Follow the accessibility relationships across that boundary.
+  const references = (el: Element, attr: "aria-controls" | "aria-owns"): Element[] => {
+    const reflected = attr === "aria-controls" ? el.ariaControlsElements : el.ariaOwnsElements;
+    if (reflected?.length) return Array.from(reflected);
+    const tree = el.getRootNode() as Document | ShadowRoot;
+    return (el.getAttribute(attr) ?? "").split(/\s+/u).flatMap((id) => {
+      const target = id && tree.getElementById(id);
+      return target ? [target] : [];
+    });
+  };
+  const exposed = (el: Element): boolean => {
+    if (isShutOut(el) || ["hidden", "collapse"].includes(cs(el).visibility)) return false;
+    for (let node: Element | null = el; node; node = parentOf(node)) {
+      if (cs(node).display === "none" || cs(node).contentVisibility === "hidden") return false;
+    }
+    return true;
+  };
+  // An option can itself be portalled under a listbox or a group via aria-owns.
+  const ownsOption = (list: Element, option: Element, seen = new Set<Element>()): boolean => {
+    if (within(list, option)) return true;
+    if (seen.has(list)) return false;
+    seen.add(list);
+    return [list, ...list.querySelectorAll("[aria-owns]")].some((owner) =>
+      references(owner, "aria-owns").some((owned) => ownsOption(owned, option, seen))
+    );
+  };
+  for (const combo of all) {
+    if (!combo.matches('[role="combobox"][aria-expanded="true"]') || !subject(combo) || !visible(combo) || !exposed(combo)) continue;
+    if (combo instanceof HTMLSelectElement || (combo instanceof HTMLInputElement && combo.list)) continue;
+    if (combo.hasAttribute("aria-haspopup") && combo.getAttribute("aria-haspopup") !== "listbox") continue;
+    const declared = [...references(combo, "aria-controls"), ...references(combo, "aria-owns")];
+    // Older wrapper-style comboboxes may contain the list directly.
+    const candidates = declared.length || combo.hasAttribute("aria-controls") || combo.hasAttribute("aria-owns")
+      ? declared : Array.from(combo.querySelectorAll('[role="listbox"], select'));
+    const lists = candidates.filter((el) => exposed(el) && (el.getAttribute("role") === "listbox" || (el instanceof HTMLSelectElement && (el.multiple || el.size > 1))));
+    if (!lists.length) {
+      report("combobox", `${controlName(combo)} is expanded, but its list of choices is missing or hidden from assistive technology.`, combo);
+      continue;
+    }
+    const input = combo.querySelector('[aria-activedescendant]') ?? combo;
+    const activeId = input.getAttribute("aria-activedescendant")?.trim();
+    const active = input.ariaActiveDescendantElement ?? (activeId ? (input.getRootNode() as Document | ShadowRoot).getElementById(activeId) : null);
+    if (!activeId && !active) continue; // Opening or empty results need no highlighted option.
+    if (!active || !active.matches('[role="option"], option') || !exposed(active) || !lists.some((list) => ownsOption(list, active))) {
+      report("combobox", `${controlName(combo)} identifies a keyboard choice that is missing, hidden, or outside its list.`, combo);
+    }
+  }
+
   const coverers = new Map<Element, Element[]>();
   for (const [el, top] of coveredBy) {
     if (!subject(el) || !el.isConnected || !top.isConnected || inPopupOver(el, top)) continue;

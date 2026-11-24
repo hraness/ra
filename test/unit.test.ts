@@ -119,6 +119,7 @@ describe("views and config", () => {
   test("reads built-in views, sizes and modifiers", () => {
     assert.deepEqual(resolveView("phone.dark"), { name: "phone.dark", width: 390, height: 844, touch: true, scale: 2, scheme: "dark", motion: false });
     assert.deepEqual(resolveView("1024x768.touch.motion"), { name: "1024x768.touch.motion", width: 1024, height: 768, touch: true, scale: 1, scheme: "light", motion: true });
+    assert.equal(resolveView("phone.dark.forced-colors").forcedColors, true);
     assert.equal(resolveView("kiosk.dark", [{ name: "kiosk", width: 1080, height: 1920 }]).width, 1080);
     assert.throws(() => resolveView("watch"), ConfigError);
     assert.throws(() => resolveView("phone.sideways"), /Unknown view modifier/u);

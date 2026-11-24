@@ -161,6 +161,16 @@
       <section id="avatars" class="avatars"><a href="/"><span><img src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Crect width=%22200%22 height=%22200%22 fill=%22%23468%22/%3E%3C/svg%3E" alt="Ada" /></span></a><a href="/"><span><img src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Crect width=%22200%22 height=%22200%22 fill=%22%23468%22/%3E%3C/svg%3E" alt="Grace" /></span></a></section>
 
       <section id="kept"><p class="kept">Kept as typed: Rechtsschutzversicherungsgesellschaften   and more.</p><p class="kept clipped">Clipped as typed: Rechtsschutzversicherungsgesellschaften   and more.</p></section>
+      <section aria-label="Broken pickers">
+        <p><label>Missing popup <input role="combobox" aria-expanded="true" aria-controls="gone-list"></label></p>
+        <p><label>Hidden popup <input role="combobox" aria-expanded="true" aria-controls="hidden-list"></label></p>
+        <div id="hidden-list" role="listbox" aria-label="Hidden popup choices" hidden></div>
+        <p><label>Old keyboard choice <input role="combobox" aria-expanded="true" aria-controls="current-results" aria-activedescendant="removed-option"></label></p>
+        <p><label>Other list's choice <input role="combobox" aria-expanded="true" aria-controls="current-results" aria-activedescendant="elsewhere-option"></label></p>
+        <p><label>Hidden keyboard choice <input role="combobox" aria-expanded="true" aria-controls="current-results" aria-activedescendant="hidden-option"></label></p>
+        <div id="current-results" role="listbox" aria-label="Current choices"><div role="option" id="hidden-option" aria-hidden="true">Previous hit</div></div>
+        <div role="listbox" aria-label="Other choices"><div id="elsewhere-option" role="option">A different result</div></div>
+      </section>
     </main>
     <script>
       console.error("Something the app logged as an error");
