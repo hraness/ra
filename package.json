@@ -1,6 +1,6 @@
 {
   "name": "@hraness/ra",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "For web pages, ra uses Chromium to measure layout and contrast. For native apps, ra walk runs your project’s UI tests and keeps their screenshots and logs.",
   "license": "MIT",
   "type": "module",

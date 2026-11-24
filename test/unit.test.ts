@@ -568,6 +568,21 @@ describe("contrast", () => {
     assert.ok(problem.ratio < 2 && problem.needs === 4.5);
     assert.deepEqual(findLowContrast([{ ...sample, color: [20, 20, 20, 1] }], painted, bare), []);
   });
+
+  test("distinguishes a moving surface from faint text on a dark background", () => {
+    const size = 8;
+    const bare: Image = { width: size, height: size, data: new Uint8Array(size * size * 4) };
+    for (let i = 0; i < bare.data.length; i += 4) bare.data.set([15, 15, 15, 255], i);
+    const painted = { ...bare, data: bare.data.slice() };
+    const sample = { where: "button", text: "Open", box: { x: 0, y: 0, width: size, height: size }, size: 14, weight: 500 };
+    // A sticky bar covered a light button between the two full-page phone pictures.
+    painted.data.set([236, 236, 234, 255], 0);
+    assert.deepEqual(findLowContrast([{ ...sample, color: [15, 15, 15, 1] }], painted, bare), []);
+    // When a genuine faint glyph accounts for the changed pixel, its contrast still fails.
+    painted.data.set([54, 54, 54, 255], 0);
+    const [problem] = findLowContrast([{ ...sample, color: [54, 54, 54, 1] }], painted, bare);
+    assert.ok(problem && problem.ratio < 2 && problem.background === "#0f0f0f");
+  });
 });
 
 describe("diff", () => {
