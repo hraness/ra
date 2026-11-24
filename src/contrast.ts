@@ -120,19 +120,20 @@ export function findLowContrast(samples: readonly TextSample[], painted: Image, 
     // else means the text is not painted the way its style says.
     const expected = blend([red, green, blue], alpha, under);
     const span = distance(expected, under);
-    if (span > 1) {
-      const along =
-        ((ink[0] - under[0]) * (expected[0] - under[0])
-          + (ink[1] - under[1]) * (expected[1] - under[1])
-          + (ink[2] - under[2]) * (expected[2] - under[2]))
+    // A glyph the colour of the underlying pixel cannot cause the visible change above.
+    // For example, a sticky layer can shift between full-page pictures on a phone.
+    if (span <= 1) continue;
+    const along =
+      ((ink[0] - under[0]) * (expected[0] - under[0])
+        + (ink[1] - under[1]) * (expected[1] - under[1])
+        + (ink[2] - under[2]) * (expected[2] - under[2]))
         / (span * span);
-      const nearest: Rgb = [
-        under[0] + (expected[0] - under[0]) * along,
-        under[1] + (expected[1] - under[1]) * along,
-        under[2] + (expected[2] - under[2]) * along,
-      ];
-      if (along < 0.15 || along > 1.25 || distance(ink, nearest) > 40) continue;
-    }
+    const nearest: Rgb = [
+      under[0] + (expected[0] - under[0]) * along,
+      under[1] + (expected[1] - under[1]) * along,
+      under[2] + (expected[2] - under[2]) * along,
+    ];
+    if (along < 0.15 || along > 1.25 || distance(ink, nearest) > 40) continue;
 
     // Judge against the whole background under the line, a sample at a time.
     const step = Math.max(1, Math.floor(Math.sqrt(((right - left) * (bottom - top)) / 600)));
